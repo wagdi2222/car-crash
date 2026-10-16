@@ -74,12 +74,14 @@ export class Bot {
     const k = this.k;
     let foe = null, fd = Infinity;
     for (const o of karts.values()) {
-      if (o === k || o.out) continue;
+      if (o === k || o.out || (this.isFriend && this.isFriend(o))) continue;
       const d = Math.hypot(o.pos.x - k.pos.x, o.pos.z - k.pos.z);
       if (d < fd) { fd = d; foe = o; }
     }
     let tx, tz;
-    if (!k.item && !k.rolling && boxes) {
+    // اخطف الراية: الهدف تحدده اللعبة (الراية، القاعدة، أو حامل الراية)
+    if (this.goal) { tx = this.goal.x; tz = this.goal.z; }
+    else if (!k.item && !k.rolling && boxes) {
       let bd = Infinity;
       for (const b of boxes.list) {
         if (!b.active) continue;
@@ -125,6 +127,7 @@ export class Bot {
     k.botSpeed = this.skill * 0.92;
 
     let fire = false, back = false;
+    if (this.chase) { foe = this.chase; fd = Math.hypot(foe.pos.x - k.pos.x, foe.pos.z - k.pos.z); }
     if (k.item && !k.rolling && foe) {
       this.itemDelay -= dt;
       const ang = Math.atan2(foe.pos.x - k.pos.x, foe.pos.z - k.pos.z) - k.heading;

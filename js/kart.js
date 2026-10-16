@@ -22,6 +22,10 @@ export const F = { DRIFT: 1, DLEFT: 2, SPIN: 4, SHIELD: 8, BOOST: 16, GENIE: 32,
 
 // هل الظلال الحقيقية مفعّلة؟ (تُضبط من إعداد الجودة)
 export const KART_GFX = { realShadows: false };
+export const TEAMS = [
+  { name: 'الصقور', color: 0xe63946, css: '#e63946', icon: '🔴' },
+  { name: 'الفهود', color: 0x3a86ff, css: '#3a86ff', icon: '🔵' },
+];
 
 const STD = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0, ...o });
 
@@ -271,6 +275,7 @@ export class Kart {
     this.boostT = 0; this.spinT = 0; this.spinAng = 0; this.shieldT = 0; this.genieT = 0; this.carpetT = 0; this.stormT = 0;
     this.cloakT = 0; this.amuletT = 0; this.orbit = 0; this.cloakVis = 1;
     this.steerS = 0; this.driftArm = false;
+    this.team = -1; this.slowMul = 1; this.caps = 0;
     this.item = null; this.itemCount = 0; this.rolling = 0;
     this.idx = 0; this.prog = 0; this.lastLat = 0; this.offroad = false;
     this.finished = false; this.finishTime = 0;
@@ -280,6 +285,17 @@ export class Kart {
     // للسيارات البعيدة
     this.target = null; this.flags = 0;
     this.wheelRot = 0;
+  }
+
+  // الفريق: دائرة ملونة تحت السيارة واسم بلون الفريق
+  setTeam(team) {
+    this.team = team;
+    if (team < 0) return;
+    const t = TEAMS[team];
+    const ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 2.9, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(t.color).multiplyScalar(1.6), transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.15;
+    this.mesh.add(ring);
+    if (this.label) { this.mesh.remove(this.label); this.label = nameSprite(this.name, t.color); this.mesh.add(this.label); }
   }
 
   get fwd() { return new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading)); }
@@ -336,7 +352,7 @@ export class Kart {
     // صفات المتسابق: السرعة والتسارع والتحكم
     const [stS, stA, stT] = this.st;
     const acc = ACC * (1 + (stA - 3) * 0.07), turn = 1 + (stT - 3) * 0.06;
-    let max = MAX_SPEED * this.botSpeed * (1 + (stS - 3) * 0.022);
+    let max = MAX_SPEED * this.botSpeed * this.slowMul * (1 + (stS - 3) * 0.022);
     if (this.offroad && this.genieT <= 0 && this.carpetT <= 0) max *= 0.62;
     if (this.boostT > 0) max *= 1.38;
     if (this.genieT > 0) max *= 1.22;

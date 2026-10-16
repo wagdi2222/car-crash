@@ -149,6 +149,12 @@
         </ul>
         <h3>وضع المعركة ⚔️</h3>
         <p>ساحة مغلقة بلا خط نهاية. لكل متسابق ثلاث أرواح ❤️، وكل إصابة بسلاح أو بالمارد تُفقدك روحاً. اجمع الأسلحة من صناديق ؟ وطارد خصومك، وآخر من يبقى يفوز. إذا انتهى الوقت (٣ دقائق) يفوز صاحب الأرواح الأكثر ثم الإصابات الأكثر.</p>
+        <h3>اخطف الراية 🚩</h3>
+        <p>في ساحات المعركة اختر «اخطف الراية»: خذ الراية من وسط الساحة وأوصلها لقاعدة فريقك (الدائرة الملونة). حامل الراية أبطأ ولا يستطيع الهجوم، ومن يصيبه يُسقط الراية منه. أول فريق يسجّل ٥ مرات يفوز. السهم الذهبي يدلّك على الراية أو قاعدتك.</p>
+        <h3>الفرق 👥</h3>
+        <p>اختر «فريقان»: 🔴 الصقور ضد 🔵 الفهود. أسلحتك لا تصيب زملاءك. في السباق نقاط الفريق = مجموع نقاط مراكز أعضائه (١٠، ٨، ٦…)، وفي المعركة يفوز الفريق الذي يبقى أحد أعضائه.</p>
+        <h3>سهم الخطر 🔺</h3>
+        <p>عندما يلاحقك صقر أو شهاب يظهر سهم أحمر نحو جهته مع صفارة تتسارع كلما اقترب. جهّز درعاً أو العين الزرقاء!</p>
         <h3>الحلبات</h3>
         <p><b>سباق:</b> 🏜️ كثبان الربع الخالي · 🏮 ليالي السوق القديم · 🌊 كورنيش الخليج · 🏔️ وادي رم · 🌙 ليل الصحراء · ⛰️ جبال الحجر</p>
         <p><b>معركة:</b> 🏰 ساحة القلعة · 🌴 واحة المعركة · 🏮 متاهة البازار · ⚓ ميناء الداو · 🗿 وادي الأعمدة</p>
@@ -170,6 +176,9 @@
       <div class="itemwrap"><div id="item" class="item"></div><div id="prot" class="prot"></div></div>
     </div>
     <ol id="standings" class="standings"></ol>
+    <div id="teambar" class="teambar hidden"></div>
+    <div id="danger" class="arrowhud danger"><i class="arr"></i><b></b></div>
+    <div id="objective" class="arrowhud objective"><i class="arr"></i><b></b></div>
     <canvas id="minimap" width="170" height="170"></canvas>
     <div id="drift" class="drift"><div class="bar"></div></div>
     <div id="msg" class="msg"></div>
@@ -218,6 +227,7 @@
   <div id="results" class="results hidden">
     <div class="panel">
       <h2 class="title sm">النتائج 🏁</h2>
+      <div id="res-team" class="res-team hidden"></div>
       <table><tbody id="res-list"></tbody></table>
       <div class="btns">
         <button id="res-again" class="btn big gold">سباق جديد</button>

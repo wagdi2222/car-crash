@@ -252,3 +252,26 @@ body.touchmode .drift { bottom: 150px; }
 @media (orientation: portrait) and (max-width: 600px) {
   .tbtn.gas { width: 72px; height: 72px; }
 }
+
+/* ===== الفرق والراية ومؤشر الخطر ===== */
+.teambar { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; background: rgba(20, 8, 30, .7); border: 2px solid var(--gold); border-radius: 14px; padding: 3px 14px; font-weight: 900; font-size: 18px; white-space: nowrap; }
+.teambar .t0 { color: #ff6b75; } .teambar .t1 { color: #6aa8ff; }
+.arrowhud { position: absolute; left: 50%; top: 46%; width: 0; height: 0; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.arrowhud.show { opacity: 1; }
+.arrowhud .arr { position: absolute; left: -22px; top: -150px; width: 44px; height: 300px; transform-origin: 22px 150px; }
+.arrowhud .arr::before { content: ''; position: absolute; left: 0; top: 0; border-left: 22px solid transparent; border-right: 22px solid transparent; border-bottom: 34px solid currentColor; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+.arrowhud b { position: absolute; left: -70px; top: -200px; width: 140px; text-align: center; font-size: 15px; text-shadow: 0 1px 4px #000; }
+.danger { color: #ff3b3b; }
+.danger b { top: -230px; color: #ffb3b3; }
+.danger .arr { top: -180px; height: 360px; transform-origin: 22px 180px; }
+.danger.show .arr::before { animation: pulse .35s infinite; }
+.objective { color: #f2c14e; }
+.res-team { text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 8px; padding: 8px; border-radius: 12px; background: rgba(0, 0, 0, .3); }
+.res-team .t0 { color: #ff6b75; } .res-team .t1 { color: #6aa8ff; }
+.popts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.popts > span { font-weight: 700; color: var(--sand); white-space: nowrap; }
+.pbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; flex: 1; }
+.popt { font: inherit; font-weight: 700; font-size: 14px; color: #fff; cursor: pointer; padding: 8px 4px; border-radius: 10px; border: 2px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .3); }
+.popt.sel { border-color: var(--gold); background: rgba(242, 193, 78, .22); }
+.popt:disabled { cursor: default; opacity: .85; }
+@media (orientation: portrait) and (max-width: 600px) { .teambar { top: 96px; font-size: 13px; padding: 2px 8px; gap: 6px; } }

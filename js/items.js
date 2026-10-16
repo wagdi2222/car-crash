@@ -155,10 +155,11 @@ function projMesh(type) {
 }
 
 // أقرب مركبة لنقطة (مع استثناء صاحب السلاح، ومن خرج أو اختفى). fwd: إن وُجد، فقط من هم خلفه
-export function nearestKart(karts, pos, ownerId, back) {
+export function nearestKart(karts, pos, ownerId, back, friend) {
   let best = null, bd = Infinity;
   for (const o of karts.values()) {
     if (o.id === ownerId || o.out || o.cloakT > 0) continue;
+    if (friend && friend(ownerId, o)) continue;
     const dx = o.pos.x - pos.x, dz = o.pos.z - pos.z;
     if (back && dx * back.x + dz * back.z <= 0) continue;
     const d = dx * dx + dz * dz;
@@ -201,7 +202,7 @@ export class Projectiles {
         let t = p.target && karts.get(p.target);
         // إن خرج الهدف أو اختفى: يلاحق الصقر أقرب مركبة أخرى
         if (p.target && (!t || t.out || t.cloakT > 0)) {
-          t = nearestKart(karts, p.pos, p.owner, null);
+          t = nearestKart(karts, p.pos, p.owner, null, this.friend);
           p.target = t ? t.id : null;
         }
         let sp = 78;
@@ -294,6 +295,7 @@ export class Projectiles {
   collide(kart) {
     for (const p of this.list.values()) {
       if (kart.out || kart.cloakT > 0) return null;
+      if (this.friend && this.friend(p.owner, kart)) continue;
       if (p.owner === kart.id && (p.type === 'dagger' || p.age < (p.type === 'oil' || p.type === 'fake' ? 1.2 : 0.8))) continue;
       if (p.type === 'meteor' && p.pos.y > 3) continue;
       const r = p.type === 'meteor' ? 4.5 : p.type === 'oil' || p.type === 'jar' || p.type === 'fake' ? 2.6 : 2.2;

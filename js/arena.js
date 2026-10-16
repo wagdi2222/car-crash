@@ -120,6 +120,24 @@ export class Arena {
     return { x: 0, z: 0, h: 0, i: 0 };
   }
 
+  // أقرب نقطة فارغة (بهامش m) من نقطة معيّنة: بحث حلزوني
+  freeNear(x, z, m = 8) {
+    for (let r = 0; r < 200; r += 6) {
+      for (let k = 0; k < Math.max(1, r); k++) {
+        const t = k / Math.max(1, r) * Math.PI * 2;
+        const px = x + Math.cos(t) * r, pz = z + Math.sin(t) * r;
+        if (!this.solidAt(px, pz, m)) return { x: px, z: pz };
+      }
+    }
+    return { x, z };
+  }
+
+  // قاعدتا الفريقين على جانبين متقابلين، والراية في الوسط
+  flagSpots() {
+    const ax = this.hw * 0.85;
+    return { bases: [this.freeNear(-ax, 0, 10), this.freeNear(ax, 0, 10)], flag: this.freeNear(0, 0, 6) };
+  }
+
   // أوسع اتجاه مفتوح من نقطة (مع تفضيل التوجه نحو الوسط)
   openHeading(x, z) {
     const toC = Math.atan2(-x, -z);

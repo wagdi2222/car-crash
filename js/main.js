@@ -5,7 +5,7 @@ import { Arena } from './arena.js';
 import { COURSES, courseById } from './courses.js';
 import { disposeGroup, mergeStatic } from './scenery.js';
 const countMeshes = (g) => { let n = 0; g.traverse((o) => { if (o.isMesh) n++; }); return n; };
-import { Kart, CHARS, F, KART_GFX } from './kart.js';
+import { Kart, CHARS, F, KART_GFX, TEAMS } from './kart.js';
 import { EffectComposer } from '../lib/post/EffectComposer.js';
 import { RenderPass } from '../lib/post/RenderPass.js';
 import { UnrealBloomPass } from '../lib/post/UnrealBloomPass.js';
@@ -19,6 +19,7 @@ import { Net } from './net.js';
 
 const LAPS = 3;
 const BATTLE_TIME = 180; // مدة المعركة بالثواني
+const CAPS_TO_WIN = 5; // عدد مرات إيصال الراية للفوز
 const LIVES = 3;
 const hearts = (n) => '❤️'.repeat(Math.max(0, Math.min(LIVES, n | 0)));
 const MAX_PLAYERS = 8;
@@ -152,6 +153,10 @@ const S = {
   quality: QUALITY[localStorageGet('rimal-quality')] ? localStorageGet('rimal-quality') : (input.isTouch ? 'medium' : 'high'),
   battleT: 0, ended: false,
   battleGas: localStorageGet('rimal-bgas') === 'auto' ? 'auto' : 'manual',
+  // خيارات اللعب: فرق، ونوع المعركة (أرواح أو اخطف الراية)
+  teams: localStorageGet('rimal-teams') === '1',
+  bmode: localStorageGet('rimal-bmode') === 'flag' ? 'flag' : 'lives',
+  cur: { teams: false, bmode: 'lives' }, // خيارات السباق الجاري
   paused: false, resumeT: 0, pauseBy: '',
   racing: false, // هل يجري سباق في الغرفة (للمضيف)
   karts: new Map(),
@@ -163,6 +168,11 @@ const S = {
   camShake: 0, demoCamT: 0, demoFocus: 0,
 };
 const myId = () => (S.solo ? 'me' : net.id);
+const isFlag = () => isBattle() && S.cur.bmode === 'flag';
+// زميلان في الفريق نفسه؟ (الأسلحة لا تصيب الزملاء)
+const sameTeam = (a, b) => S.cur.teams && a && b && a !== b && a.team >= 0 && a.team === b.team;
+projs.friend = (ownerId, kart) => sameTeam(S.karts.get(ownerId), kart);
+const isAuth = () => S.solo || net.isHost; // من يدير حالة الراية
 // رسائل السباق لا تُرسل في وضع العرض التجريبي أو اللعب الفردي
 const rsend = (msg) => { if (!S.solo && !S.demo) net.send(msg); };
 
@@ -171,13 +181,22 @@ function clearRace() {
   for (const k of S.karts.values()) k.dispose(scene);
   S.karts.clear(); S.ais.clear(); S.me = null;
   for (const id of [...projs.list.keys()]) projs.remove(id, false);
+  if (FLAG) { scene.remove(FLAG.group); disposeGroup(FLAG.group); FLAG = null; }
   if (boxes) boxes.list.forEach((b) => { b.active = true; b.m.visible = true; b.m.scale.setScalar(1); });
 }
 
-function startRace(roster, demo = false, courseId = S.courseId) {
+// توزيع الفرق: بالتناوب حتى يتساوى العدد
+function assignTeams(roster, on) {
+  roster.forEach((r, i) => { r.team = on ? i % 2 : -1; });
+  return roster;
+}
+
+function startRace(roster, demo = false, courseId = S.courseId, opts = null) {
   clearRace();
   loadCourse(courseId);
   S.demo = demo;
+  S.cur = demo ? { teams: false, bmode: 'lives' } : (opts || { teams: S.teams, bmode: S.bmode });
+  if (isFlag()) S.cur.teams = true; // اخطف الراية لعبة فرق دائماً
   S.ended = false;
   S.battleT = BATTLE_TIME;
   const mine = myId();
@@ -187,11 +206,14 @@ function startRace(roster, demo = false, courseId = S.courseId) {
     const k = new Kart(scene, { id: r.id, name: r.name, char: r.char, owned, bot: !!r.bot });
     k.place(track, slot, roster.length);
     k.lives = LIVES;
+    if (S.cur.teams) k.setTeam(r.team >= 0 ? r.team : slot % 2);
     if (!owned) k.target = { x: k.pos.x, y: 0, z: k.pos.z, h: k.heading, sp: 0 };
     S.karts.set(r.id, k);
     if (r.bot && owned) S.ais.set(r.id, new Bot(k, 0.9 + Math.random() * 0.08));
+    if (S.ais.has(r.id)) S.ais.get(r.id).isFriend = (o) => sameTeam(k, o);
     if (isMe) { S.me = k; if (k.label) { k.mesh.remove(k.label); k.label = null; } }
   });
+  if (isFlag()) setupFlag();
   S.countdown = demo ? 0.01 : 3.9;
   S.started = false; S.raceT = 0; S.revT = 0; S.lastLap = 1;
   S.resultsShown = false;
@@ -239,6 +261,9 @@ function botRoster(humans, count) {
 }
 
 function ranking() {
+  if (isFlag()) {
+    return [...S.karts.values()].sort((a, b) => (FLAG.score[b.team] - FLAG.score[a.team]) || (b.caps - a.caps) || (b.hits - a.hits));
+  }
   if (isBattle()) {
     // المعركة: الباقون أولاً، ثم الأرواح، ثم عدد الإصابات، ثم من خرج متأخراً
     return [...S.karts.values()].sort((a, b) => (a.out - b.out) || (b.lives - a.lives) || (b.hits - a.hits) || (b.outTime - a.outTime));
@@ -294,7 +319,12 @@ function updateRace(dt) {
       let ki;
       if (k !== me || k.finished || S.autopilot) {
         let ai = S.ais.get(k.id);
-        if (!ai) { ai = new Bot(k, 0.9); S.ais.set(k.id, ai); }
+        if (!ai) { ai = new Bot(k, 0.9); ai.isFriend = (o) => sameTeam(k, o); S.ais.set(k.id, ai); }
+        if (isFlag()) {
+          ai.goal = flagGoal(k);
+          const c = FLAG && FLAG.carrier && S.karts.get(FLAG.carrier);
+          ai.chase = c && !sameTeam(c, k) && c !== k ? c : null;
+        }
         ki = S.started ? ai.think(dt, track, S.karts, leaderProg, boxes) : NOINPUT;
       } else ki = inp;
       const ev = k.update(dt, ki, track, fx);
@@ -303,6 +333,7 @@ function updateRace(dt) {
       if (!isBattle()) checkLap(k);
     } else k.updateRemote(dt, fx);
   }
+  if (isFlag()) updateFlag(dt);
   if (isBattle() && S.started) checkBattleEnd(dt, rank);
 
   // تصادم السيارات
@@ -319,6 +350,7 @@ function updateRace(dt) {
       a.pos.x -= nx * push * wa; a.pos.z -= nz * push * wa;
       b.pos.x += nx * push * wb; b.pos.z += nz * push * wb;
       // المارد يطيح بمن يلمسه
+      if (sameTeam(a, b)) continue;
       if (a.genieT > 0 && b.owned && b.genieT <= 0 && b.spinT <= 0 && b.hit('genie')) { onHitLocal(b, a.id); rsend({ t: 'ev', k: 'hit', v: b.id, by: a.id, real: true }); }
       if (b.genieT > 0 && a.owned && a.genieT <= 0 && a.spinT <= 0 && a.hit('genie')) { onHitLocal(a, b.id); rsend({ t: 'ev', k: 'hit', v: a.id, by: b.id, real: true }); }
     }
@@ -391,6 +423,14 @@ function onMyEvents(ev) {
 // إصابة حقيقية لسيارة نملكها. by = من أصابها
 function onHitLocal(k, by) {
   if (k === S.me) { audio.play('hit'); S.camShake = 0.5; }
+  if (isFlag()) {
+    // اخطف الراية: لا أرواح، لكن من يُصاب تسقط منه الراية
+    if (isAuth() && FLAG && FLAG.carrier === k.id) dropFlag(k);
+    if (k === S.me) showMsg('آخ!', 'hit');
+    const att = S.karts.get(by);
+    if (att && att.owned && att !== k) att.hits++;
+    return;
+  }
   if (!isBattle()) { if (k === S.me) showMsg('آخ!', 'hit'); return; }
   const att = S.karts.get(by);
   if (att && att.owned && att !== k) att.hits++;
@@ -421,16 +461,164 @@ function eliminate(k) {
 function checkBattleEnd(dt, rank) {
   if (S.ended) return;
   S.battleT -= dt;
-  const alive = rank.filter((k) => !k.out);
-  if ((rank.length > 1 && alive.length <= 1) || S.battleT <= 0) {
-    S.ended = true;
+  let over = S.battleT <= 0;
+  if (isFlag()) over = over || FLAG.score[0] >= CAPS_TO_WIN || FLAG.score[1] >= CAPS_TO_WIN;
+  else if (S.cur.teams) {
+    // فرق بالأرواح: تنتهي حين لا يبقى أحد من أحد الفريقين
+    const aliveT = [0, 1].map((t) => rank.some((k) => !k.out && k.team === t));
+    over = over || !aliveT[0] || !aliveT[1];
+  } else {
+    const alive = rank.filter((k) => !k.out);
+    over = over || (rank.length > 1 && alive.length <= 1);
+  }
+  if (!over) return;
+  S.ended = true;
+  if (!S.me) return;
+  if (S.cur.teams) {
+    const w = winningTeam();
+    const mine = S.me.team;
+    showMsg(w < 0 ? 'تعادل!' : w === mine ? `فاز فريقك ${TEAMS[w].name}! 🏆` : `فاز فريق ${TEAMS[w].name}`, 'go');
+  } else {
     const win = ranking()[0];
-    if (S.me) {
-      showMsg(win === S.me ? 'فزت بالمعركة! 🏆' : `الفائز: ${win.name}`, 'go');
-      audio.play('win');
-      S.resultsT = 2.5;
+    showMsg(win === S.me ? 'فزت بالمعركة! 🏆' : `الفائز: ${win.name}`, 'go');
+  }
+  audio.play('win');
+  S.resultsT = 2.5;
+}
+
+// نقاط الفريقين حسب نوع اللعب
+const RACE_POINTS = [10, 8, 6, 5, 4, 3, 2, 1];
+function teamScores() {
+  const sc = [0, 0];
+  if (isFlag()) return [...FLAG.score];
+  const rank = ranking();
+  if (isBattle()) {
+    for (const k of rank) if (k.team >= 0 && !k.out) sc[k.team] += 100 + k.lives * 10 + k.hits;
+    return sc;
+  }
+  rank.forEach((k, i) => { if (k.team >= 0) sc[k.team] += RACE_POINTS[i] || 0; });
+  return sc;
+}
+function winningTeam() {
+  const [a, b] = teamScores();
+  return a === b ? -1 : a > b ? 0 : 1;
+}
+
+// ---------- اخطف الراية ----------
+let FLAG = null;
+function flagMesh() {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 6, 8), new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 1, roughness: 0.3 }));
+  pole.position.y = 3; g.add(pole);
+  const shape = new THREE.Shape(); shape.moveTo(0, 0); shape.lineTo(3.2, -0.9); shape.lineTo(0, -1.8); shape.closePath();
+  const cloth = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xf2c14e).multiplyScalar(1.6), side: THREE.DoubleSide }));
+  cloth.position.set(0.1, 5.9, 0); g.add(cloth);
+  const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.45, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  star.position.y = 6.3; g.add(star);
+  return g;
+}
+function baseMesh(t) {
+  const g = new THREE.Group();
+  const col = new THREE.Color(TEAMS[t].color);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(9, 12, 48), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.5), side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.1; g.add(ring);
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.25, depthWrite: false }));
+  fill.rotation.x = -Math.PI / 2; fill.position.y = 0.08; g.add(fill);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 60, 32, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }));
+  beam.position.y = 30; g.add(beam);
+  for (let k = 0; k < 6; k++) {
+    const a = k / 6 * Math.PI * 2;
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 4, 8), new THREE.MeshLambertMaterial({ color: col }));
+    p.position.set(Math.cos(a) * 12, 2, Math.sin(a) * 12); g.add(p);
+  }
+  return g;
+}
+
+function setupFlag() {
+  const spots = track.flagSpots();
+  FLAG = { home: spots.flag, x: spots.flag.x, z: spots.flag.z, carrier: null, score: [0, 0], bases: spots.bases, cool: 0, sendT: 0, group: new THREE.Group() };
+  FLAG.mesh = flagMesh();
+  FLAG.group.add(FLAG.mesh);
+  spots.bases.forEach((b, t) => { const m = baseMesh(t); m.position.set(b.x, 0, b.z); FLAG.group.add(m); });
+  scene.add(FLAG.group);
+  // كل فريق يبدأ قرب قاعدته متجهاً نحو الراية
+  const counts = [0, 0];
+  for (const k of S.karts.values()) {
+    if (k.team < 0) continue;
+    const b = spots.bases[k.team], n = counts[k.team]++;
+    const a = n * 1.3 + (k.team ? Math.PI : 0);
+    const p = track.freeNear(b.x + Math.cos(a) * 16, b.z + Math.sin(a) * 16, 4);
+    k.pos.set(p.x, 0, p.z);
+    k.heading = Math.atan2(FLAG.x - p.x, FLAG.z - p.z);
+    if (k.target) Object.assign(k.target, { x: p.x, z: p.z, h: k.heading });
+    k.syncMesh(0);
+  }
+}
+
+function flagSend() {
+  rsend({ t: 'flag', c: FLAG.carrier, x: +FLAG.x.toFixed(1), z: +FLAG.z.toFixed(1), s: FLAG.score });
+}
+
+function dropFlag(k) {
+  if (!FLAG || FLAG.carrier !== k.id) return;
+  FLAG.carrier = null;
+  FLAG.x = k.pos.x; FLAG.z = k.pos.z;
+  FLAG.cool = 1.2;
+  if (k === S.me) showMsg('سقطت منك الراية!', 'hit');
+  flagSend();
+}
+
+function updateFlag(dt) {
+  const c = FLAG.carrier && S.karts.get(FLAG.carrier);
+  // رسم الراية: فوق حاملها أو على الأرض
+  if (c) { FLAG.x = c.pos.x; FLAG.z = c.pos.z; FLAG.mesh.position.set(c.pos.x, c.y + 2.2, c.pos.z); FLAG.mesh.rotation.y = c.heading + Math.PI / 2; }
+  else { FLAG.mesh.position.set(FLAG.x, 0, FLAG.z); FLAG.mesh.rotation.y += dt * 1.5; }
+  // حامل الراية أبطأ ولا يستفيد من منصّات التسارع كثيراً، حتى يستطيع الخصوم اللحاق به
+  for (const k of S.karts.values()) { k.slowMul = k.id === FLAG.carrier ? 0.8 : 1; if (k.id === FLAG.carrier) k.boostT = Math.min(k.boostT, 0.4); }
+  if (!isAuth() || !S.started || S.ended) return;
+  FLAG.cool -= dt;
+  FLAG.sendT -= dt;
+  if (c) {
+    if (c.out) { dropFlag(c); return; }
+    const b = FLAG.bases[c.team];
+    if (Math.hypot(c.pos.x - b.x, c.pos.z - b.z) < 11) {
+      // إيصال الراية للقاعدة
+      FLAG.score[c.team]++;
+      c.caps++;
+      FLAG.carrier = null;
+      FLAG.x = FLAG.home.x; FLAG.z = FLAG.home.z; FLAG.cool = 3;
+      onScore(c.team, c.name);
+      flagSend();
+    }
+  } else if (FLAG.cool <= 0) {
+    for (const k of S.karts.values()) {
+      if (k.out || k.spinT > 0) continue;
+      if (Math.hypot(k.pos.x - FLAG.x, k.pos.z - FLAG.z) < 4.5) { FLAG.carrier = k.id; onTake(k); flagSend(); break; }
     }
   }
+  if (FLAG.sendT <= 0) { FLAG.sendT = 1; flagSend(); }
+}
+
+function onTake(k) {
+  if (!S.me) return;
+  if (k === S.me) { showMsg('معك الراية! أوصلها لقاعدتك 🚩', 'item'); audio.play('pickup'); }
+  else if (sameTeam(k, S.me)) showMsg(`${k.name} أخذ الراية!`, 'item');
+  else showMsg(`${k.name} خطف الراية! طارده`, 'hit');
+}
+function onScore(team, who) {
+  if (!S.me) return;
+  showMsg(team === S.me.team ? `🚩 سجّل فريقك! (${who})` : `🚩 سجّل فريق ${TEAMS[team].name}`, team === S.me.team ? 'go' : 'hit');
+  audio.play(team === S.me.team ? 'lap' : 'hit');
+}
+
+// هدف الآلي في اخطف الراية
+function flagGoal(k) {
+  if (!FLAG) return null;
+  if (FLAG.carrier === k.id) return FLAG.bases[k.team];
+  if (!FLAG.carrier) return { x: FLAG.x, z: FLAG.z };
+  const c = S.karts.get(FLAG.carrier);
+  if (c && !sameTeam(c, k)) return { x: c.pos.x, z: c.pos.z }; // طارد حامل الراية
+  return null; // زميلك يحملها: هاجم الخصوم كالمعتاد
 }
 
 function soundAt(pos, name) {
@@ -457,7 +645,11 @@ function handleItems(k, ki, rank, dt) {
       if (k === S.me) audio.play('item');
     }
   }
-  if (ki.fire && k.item && !k.rolling && S.started && k.spinT <= 0) useItem(k, ki.back, rank);
+  if (ki.fire && k.item && !k.rolling && S.started && k.spinT <= 0) {
+    // حامل الراية يستخدم أدوات الحماية فقط
+    if (isFlag() && FLAG && FLAG.carrier === k.id && !DEFENSE.has(k.item)) { if (k === S.me) showMsg('حامل الراية لا يهاجم! استخدم الحماية فقط', 'hit'); }
+    else useItem(k, ki.back, rank);
+  }
 }
 
 function spawnProj(d) {
@@ -474,7 +666,7 @@ function useItem(k, back, rank) {
   switch (it) {
     case 'missile': {
       // صقر الصاروخ يلاحق أقرب مركبة (وعند الرمي للخلف: أقرب من هو خلفك)
-      const near = nearestKart(S.karts, k.pos, k.id, back ? new THREE.Vector3(-f.x, 0, -f.z) : null);
+      const near = nearestKart(S.karts, k.pos, k.id, back ? new THREE.Vector3(-f.x, 0, -f.z) : null, projs.friend);
       const target = near ? near.id : null;
       const h0 = near ? Math.atan2(near.pos.x - k.pos.x, near.pos.z - k.pos.z) : k.heading + (back ? Math.PI : 0);
       spawnProj({ type: 'missile', owner: k.id, x: k.pos.x + Math.sin(h0) * 1.5, z: k.pos.z + Math.cos(h0) * 1.5, h: h0, target, back: !!back });
@@ -505,7 +697,7 @@ function useItem(k, back, rank) {
       break;
     case 'meteor': {
       // يستهدف المتصدر (أو الثاني إن كنت أنت في المقدمة)
-      const tgt = rank.find((o) => o !== k && !o.out);
+      const tgt = rank.find((o) => o !== k && !o.out && !sameTeam(o, k));
       spawnProj({ type: 'meteor', owner: k.id, x: k.pos.x, z: k.pos.z, h: k.heading, target: tgt ? tgt.id : null });
       if (isMe) { audio.play('fire'); showMsg('☄️ الشهاب في طريقه!', 'item'); }
       if (tgt === S.me && !isMe) showMsg('☄️ شهاب قادم نحوك!', 'hit');
@@ -550,7 +742,7 @@ function applyStorm(from, prog) {
   const src = S.karts.get(from);
   if (S.me && !S.demo) audio.play('storm');
   for (const k of S.karts.values()) {
-    if (!k.owned || k.id === from || k.genieT > 0 || k.finished || k.out) continue;
+    if (!k.owned || k.id === from || k.genieT > 0 || k.finished || k.out || sameTeam(k, src)) continue;
     if (!isBattle() && k.prog <= prog) continue; // في السباق: فقط من هم أمامك
     if (k.shieldT > 0) { k.shieldT = 0; continue; }
     k.stormT = 3.5;
@@ -563,7 +755,7 @@ function applySwarm(from, x, z) {
   fx.swarm(new THREE.Vector3(x, 1, z));
   if (S.me && !S.demo && Math.hypot(S.me.pos.x - x, S.me.pos.z - z) < 80) audio.play('storm');
   for (const k of S.karts.values()) {
-    if (!k.owned || k.id === from || k.out) continue;
+    if (!k.owned || k.id === from || k.out || sameTeam(k, S.karts.get(from))) continue;
     if (Math.hypot(k.pos.x - x, k.pos.z - z) > 26) continue;
     if (k.hit('locust')) { onHitLocal(k, from); rsend({ t: 'ev', k: 'hit', v: k.id, by: from, real: true }); }
     else if (k === S.me) audio.play('shield');
@@ -682,6 +874,11 @@ function buildMinimap() {
 function drawMinimap() {
   mmc.clearRect(0, 0, mm.width, mm.height);
   mmc.drawImage(mmBase, 0, 0);
+  if (FLAG) {
+    FLAG.bases.forEach((b, t) => { const [x, y] = mmT(b.x, b.z); mmc.beginPath(); mmc.arc(x, y, 7, 0, Math.PI * 2); mmc.fillStyle = TEAMS[t].css; mmc.globalAlpha = 0.7; mmc.fill(); mmc.globalAlpha = 1; });
+    const [fx2, fy2] = mmT(FLAG.x, FLAG.z);
+    mmc.font = '14px sans-serif'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle'; mmc.fillText('🚩', fx2, fy2 - 6);
+  }
   for (const k of S.karts.values()) {
     if (k.out) continue;
     const [x, y] = mmT(k.pos.x, k.pos.z);
@@ -689,8 +886,8 @@ function drawMinimap() {
     mmc.arc(x, y, k === S.me ? 6 : 4.5, 0, Math.PI * 2);
     mmc.fillStyle = '#' + new THREE.Color(k.color).getHexString();
     mmc.fill();
-    mmc.lineWidth = k === S.me ? 2.5 : 1.2;
-    mmc.strokeStyle = k === S.me ? '#fff' : '#000';
+    mmc.lineWidth = k === S.me ? 2.5 : S.cur.teams ? 2 : 1.2;
+    mmc.strokeStyle = k === S.me ? '#fff' : S.cur.teams && k.team >= 0 ? TEAMS[k.team].css : '#000';
     mmc.stroke();
   }
   for (const p of projs.list.values()) {
@@ -700,13 +897,13 @@ function drawMinimap() {
   }
 }
 
-let rouletteT = 0, standT = 0, itemKey = null, protKey = '';
+let rouletteT = 0, standT = 0, itemKey = null, protKey = '', tbKey = '', dangerBeep = 0;
 function updateHUD(rank, dt) {
   const me = S.me;
   if (!me) return;
   const battle = isBattle();
   if (battle) {
-    $('lap').innerHTML = me.out ? 'تشاهد المعركة 👀' : hearts(me.lives) + '🖤'.repeat(LIVES - Math.max(0, Math.min(LIVES, me.lives)));
+    $('lap').innerHTML = isFlag() ? (FLAG && FLAG.carrier === me.id ? '🚩 معك الراية!' : `🚩 ${AR(FLAG ? FLAG.score[me.team] : 0)} / ${AR(CAPS_TO_WIN)}`) : me.out ? 'تشاهد المعركة 👀' : hearts(me.lives) + '🖤'.repeat(LIVES - Math.max(0, Math.min(LIVES, me.lives)));
     $('time').textContent = fmtTime(Math.max(0, S.battleT)).slice(0, -3);
   } else {
     const lap = Math.min(LAPS, Math.max(1, Math.floor(me.prog / track.N) + 1));
@@ -735,6 +932,44 @@ function updateHUD(rank, dt) {
     dl.className = 'drift on lvl' + me.driftLvl;
     dl.style.setProperty('--p', Math.min(1, me.driftT / 2.6));
   } else dl.className = 'drift';
+  // شريط الفرق
+  const tb = $('teambar');
+  tb.classList.toggle('hidden', !S.cur.teams);
+  if (S.cur.teams) {
+    const sc = teamScores();
+    const label = isFlag() ? '🚩' : isBattle() ? '❤️' : 'نقاط';
+    const val = (t) => (isBattle() && !isFlag() ? AR(rank.filter((k) => !k.out && k.team === t).length) : AR(sc[t]));
+    const html = `<span class="t0">${TEAMS[0].icon} ${TEAMS[0].name} ${val(0)}</span><small>${label}</small><span class="t1">${val(1)} ${TEAMS[1].name} ${TEAMS[1].icon}</span>`;
+    if (html !== tbKey) { tbKey = html; tb.innerHTML = html; }
+  }
+  // سهم الهدف في اخطف الراية، وسهم الخطر عند ملاحقة صقر أو شهاب لك
+  const fwdX = camLook.x - camera.position.x, fwdZ = camLook.z - camera.position.z;
+  const fl = Math.hypot(fwdX, fwdZ) || 1;
+  const pointAt = (el, x, z, text) => {
+    const vx = x - me.pos.x, vz = z - me.pos.z;
+    const ux = fwdX / fl, uz = fwdZ / fl;
+    const ang = Math.atan2(vx * -uz + vz * ux, vx * ux + vz * uz); // موجب = يمين الشاشة
+    el.firstElementChild.style.transform = `rotate(${ang}rad)`;
+    el.lastElementChild.textContent = text;
+    el.classList.add('show');
+  };
+  const obj = $('objective');
+  const goal = isFlag() && !me.out ? flagGoal(me) : null;
+  if (goal && FLAG.carrier !== null && FLAG.carrier !== me.id && !sameTeam(S.karts.get(FLAG.carrier), me)) pointAt(obj, goal.x, goal.z, '🏃 حامل الراية');
+  else if (goal) pointAt(obj, goal.x, goal.z, FLAG.carrier === me.id ? `🏁 قاعدتك ${AR(Math.round(Math.hypot(goal.x - me.pos.x, goal.z - me.pos.z)))}م` : `🚩 الراية ${AR(Math.round(Math.hypot(goal.x - me.pos.x, goal.z - me.pos.z)))}م`);
+  else obj.classList.remove('show');
+  let threat = null, td = Infinity;
+  for (const p of projs.list.values()) {
+    if ((p.type !== 'missile' && p.type !== 'meteor') || p.target !== me.id) continue;
+    const d = Math.hypot(p.pos.x - me.pos.x, p.pos.z - me.pos.z);
+    if (d < td) { td = d; threat = p; }
+  }
+  const dg = $('danger');
+  if (threat && td < 160) {
+    pointAt(dg, threat.pos.x, threat.pos.z, `${threat.type === 'meteor' ? '☄️' : '🦅'} ${AR(Math.round(td))}م`);
+    dangerBeep -= dt;
+    if (dangerBeep <= 0) { audio.tone(td < 40 ? 1300 : 900, 0.08, 'square', 0.12); dangerBeep = Math.max(0.12, td / 160 * 0.7); }
+  } else dg.classList.remove('show');
   // الحمايات الفعّالة
   const prot = (me.shieldT > 0 ? '🛡️' : '') + (me.amuletT > 0 ? '🧿' : '') + '🏮'.repeat(me.orbit) + (me.cloakT > 0 ? '👻' : '') + (me.genieT > 0 ? '🧞' : '');
   if (prot !== protKey) { protKey = prot; $('prot').textContent = prot; }
@@ -745,7 +980,7 @@ function updateHUD(rank, dt) {
   standT -= dt;
   if (standT <= 0) {
     standT = 0.3;
-    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${esc(k.name)}${battle ? ' ' + (k.out ? '💀' : hearts(k.lives)) : k.finished ? ' 🏁' : ''}</li>`).join('');
+    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${S.cur.teams && k.team >= 0 ? TEAMS[k.team].icon : ''}${esc(k.name)}${isFlag() ? (FLAG && FLAG.carrier === k.id ? ' 🚩' : '') : battle ? ' ' + (k.out ? '💀' : hearts(k.lives)) : k.finished ? ' 🏁' : ''}</li>`).join('');
   }
   drawMinimap();
   // النتائج
@@ -758,6 +993,13 @@ function updateHUD(rank, dt) {
 
 function showResults() {
   S.resultsShown = true;
+  const rt = $('res-team');
+  rt.classList.toggle('hidden', !S.cur.teams);
+  if (S.cur.teams) {
+    const sc = teamScores(), w = winningTeam();
+    const v = (t) => (isBattle() && !isFlag() ? '' : ` ${AR(sc[t])}`);
+    rt.innerHTML = (w < 0 ? 'تعادل! ' : `🏆 فاز فريق <span class="t${w}">${TEAMS[w].name}</span><br>`) + `<small><span class="t0">${TEAMS[0].icon} ${TEAMS[0].name}${v(0)}</span> — <span class="t1">${TEAMS[1].name}${v(1)} ${TEAMS[1].icon}</span></small>`;
+  }
   $('results').classList.remove('hidden');
   const host = S.solo || net.isHost;
   $('res-again').classList.toggle('hidden', !host);
@@ -772,8 +1014,8 @@ function renderResults(rank) {
   resT = 0.5;
   $('res-list').innerHTML = rank.map((k, i) => `<tr class="${k === S.me ? 'me' : ''}">
     <td>${i < 3 ? ['🥇', '🥈', '🥉'][i] : AR(i + 1)}</td>
-    <td><span class="nm"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${esc(k.name)}${k.bot ? ' <small>(آلي)</small>' : ''}</span></td>
-    <td>${isBattle() ? `<span dir="rtl">${k.out ? '💀 خرج' : hearts(k.lives)} · 🎯 ${AR(k.hits)}</span>` : k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
+    <td><span class="nm"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${S.cur.teams && k.team >= 0 ? TEAMS[k.team].icon + ' ' : ''}${esc(k.name)}${k.bot ? ' <small>(آلي)</small>' : ''}</span></td>
+    <td>${isFlag() ? `<span dir="rtl">🚩 ${AR(k.caps)} · 🎯 ${AR(k.hits)}</span>` : isBattle() ? `<span dir="rtl">${k.out ? '💀 خرج' : hearts(k.lives)} · 🎯 ${AR(k.hits)}</span>` : k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
 }
 
 function showScreen(id) {
@@ -894,7 +1136,8 @@ function startSolo() {
   audio.init();
   S.solo = true; S.mode = 'race';
   const humans = [{ id: 'me', name: S.name, char: S.char }];
-  startRace([...humans, ...botRoster(humans, 5)]);
+  const opts = { teams: S.teams || (courseById(S.courseId).kind === 'arena' && S.bmode === 'flag'), bmode: S.bmode };
+  startRace(assignTeams([...humans, ...botRoster(humans, 5)], opts.teams), false, S.courseId, opts);
 }
 
 // بطاقات اختيار الحلبة (سباق / معركة)
@@ -910,7 +1153,23 @@ function renderCoursePicker(el, readonly) {
     <button class="pcard ${c.id === S.courseId ? 'sel' : ''}" data-id="${c.id}" style="--a:${c.card[0]};--b:${c.card[1]}" ${readonly ? 'disabled' : ''}>
       <span class="pic">${c.icon}</span>
       <span class="ptxt"><b>${c.name}</b><small>${c.place}</small><em>${c.desc}</em></span>
-    </button>`).join('') + `</div>` + (pickTab === 'arena' && !readonly ? `<p class="phint">في المعركة لكل متسابق ${AR(LIVES)} أرواح ❤️. كل إصابة تُفقده روحاً، وآخر من يبقى يفوز.</p>` : '');
+    </button>`).join('') + `</div>` + (pickTab === 'arena' && !readonly && S.bmode !== 'flag' ? `<p class="phint">في المعركة لكل متسابق ${AR(LIVES)} أرواح ❤️. كل إصابة تُفقده روحاً، وآخر من يبقى يفوز.</p>` : '');
+  // خيارات اللعب: الفرق ونوع المعركة
+  const flagMode = cur.kind === 'arena' && S.bmode === 'flag';
+  const optRow = (label, items) => `<div class="popts"><span>${label}</span><div class="pbtns">${items.map(([k, v, t, on]) => `<button class="popt ${on ? 'sel' : ''}" data-k="${k}" data-v="${v}" ${readonly ? 'disabled' : ''}>${t}</button>`).join('')}</div></div>`;
+  let opts = '';
+  if (cur.kind === 'arena') opts += optRow('نوع المعركة', [['bmode', 'lives', '❤️ الأرواح', S.bmode === 'lives'], ['bmode', 'flag', '🚩 اخطف الراية', S.bmode === 'flag']]);
+  opts += optRow('اللعب', [['teams', '0', '👤 كلٌّ لنفسه', !S.teams && !flagMode], ['teams', '1', '👥 فريقان', S.teams || flagMode]]);
+  if (flagMode) opts += `<p class="phint">🚩 خذ الراية من وسط الساحة وأوصلها لقاعدة فريقك (الدائرة الملونة). من يُصاب تسقط منه الراية. أول فريق يسجّل ${AR(CAPS_TO_WIN)} مرات يفوز.</p>`;
+  else if (S.teams) opts += `<p class="phint">👥 فريق ${TEAMS[0].icon} ${TEAMS[0].name} ضد فريق ${TEAMS[1].icon} ${TEAMS[1].name}. أسلحتك لا تصيب زملاءك.${cur.kind === 'race' ? ' نقاط الفريق = مجموع نقاط مراكز أعضائه.' : ''}</p>`;
+  el.insertAdjacentHTML('beforeend', opts);
+  el.querySelectorAll('.popt').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.k === 'teams') { S.teams = b.dataset.v === '1'; localStorageSet('rimal-teams', S.teams ? '1' : '0'); if (!S.teams && S.bmode === 'flag') { S.bmode = 'lives'; localStorageSet('rimal-bmode', 'lives'); } }
+    else { S.bmode = b.dataset.v; localStorageSet('rimal-bmode', S.bmode); }
+    renderCoursePicker(el, readonly);
+    if (net.isHost) broadcastLobby();
+    audio.init(); audio.play('pickup');
+  }));
   el.querySelectorAll('.ptab').forEach((b) => b.addEventListener('click', () => {
     pickTab = b.dataset.tab;
     const first = COURSES.find((c) => c.kind === pickTab);
@@ -923,7 +1182,7 @@ function renderCoursePicker(el, readonly) {
     audio.init(); audio.play('pickup');
   }));
   const go = $('select-go');
-  if (go) go.textContent = courseById(S.courseId).kind === 'arena' ? 'ابدأ المعركة! ⚔️' : 'ابدأ السباق! 🏁';
+  if (go) go.textContent = courseById(S.courseId).kind === 'arena' ? (S.bmode === 'flag' ? 'ابدأ اخطف الراية! 🚩' : 'ابدأ المعركة! ⚔️') : 'ابدأ السباق! 🏁';
 }
 
 function selectCourse(id) {
@@ -1052,7 +1311,7 @@ function renderLobby(info = {}) {
 
 function broadcastLobby() {
   if (!net.isHost) return;
-  net.send({ t: 'lobby', players: S.lobby, bots: S.botCount, racing: S.racing, course: S.courseId }, false);
+  net.send({ t: 'lobby', players: S.lobby, bots: S.botCount, racing: S.racing, course: S.courseId, teams: S.teams, bmode: S.bmode }, false);
   if (S.mode === 'lobby') renderLobby();
 }
 
@@ -1060,10 +1319,11 @@ function hostStart() {
   if (!net.isHost) return;
   audio.init();
   const humans = S.lobby.slice(0, MAX_PLAYERS);
-  const roster = [...humans, ...botRoster(humans, Math.min(S.botCount, MAX_PLAYERS - humans.length))];
+  const opts = { teams: S.teams || (courseById(S.courseId).kind === 'arena' && S.bmode === 'flag'), bmode: S.bmode };
+  const roster = assignTeams([...humans, ...botRoster(humans, Math.min(S.botCount, MAX_PLAYERS - humans.length))], opts.teams);
   S.racing = true;
-  net.send({ t: 'start', roster, course: S.courseId }, false);
-  startRace(roster);
+  net.send({ t: 'start', roster, course: S.courseId, opts }, false);
+  startRace(roster, false, S.courseId, opts);
 }
 
 net.onJoin = () => { /* ننتظر رسالة hello */ };
@@ -1098,6 +1358,7 @@ net.onMessage = (m) => {
       if (net.isHost) return;
       S.lobby = Array.isArray(m.players) ? m.players : [];
       S.botCount = m.bots | 0;
+      S.teams = !!m.teams; S.bmode = m.bmode === 'flag' ? 'flag' : 'lives';
       if (m.course && m.course !== S.courseId) { S.courseId = courseById(m.course).id; if (S.mode === 'lobby') startDemo(); }
       if (S.mode === 'race' && !m.racing) { S.mode = 'lobby'; enterLobby(); }
       if (S.mode === 'lobby') renderLobby(m);
@@ -1107,9 +1368,19 @@ net.onMessage = (m) => {
       if (net.isHost || !Array.isArray(m.roster)) return;
       if (!m.roster.find((r) => r.id === net.id)) return; // لست في هذا السباق
       S.courseId = courseById(m.course).id;
-      startRace(m.roster);
+      startRace(m.roster, false, S.courseId, { teams: !!(m.opts && m.opts.teams), bmode: m.opts && m.opts.bmode === 'flag' ? 'flag' : 'lives' });
       break;
     case 'left': removeKart(m.id); break;
+    case 'flag': {
+      if (S.demo || !FLAG || isAuth()) return;
+      const prevC = FLAG.carrier, prevS = [...FLAG.score];
+      FLAG.carrier = m.c || null; FLAG.x = +m.x; FLAG.z = +m.z;
+      if (Array.isArray(m.s)) FLAG.score = [m.s[0] | 0, m.s[1] | 0];
+      for (const t of [0, 1]) if (FLAG.score[t] > prevS[t]) { const k = S.karts.get(prevC); if (k) k.caps++; onScore(t, k ? k.name : ''); }
+      if (FLAG.carrier && FLAG.carrier !== prevC) { const k = S.karts.get(FLAG.carrier); if (k) onTake(k); }
+      if (!FLAG.carrier && prevC === myId() && FLAG.score[0] === prevS[0] && FLAG.score[1] === prevS[1]) showMsg('سقطت منك الراية!', 'hit');
+      break;
+    }
     case 's': {
       if (S.demo || !Array.isArray(m.k)) return;
       for (const e of m.k) {
@@ -1133,6 +1404,8 @@ net.onMessage = (m) => {
         // من أصاب خصماً يُحسب له (إن كان من سياراتنا)
         const att = S.karts.get(m.by);
         if (m.real && isBattle() && att && att.owned && m.v !== m.by) att.hits++;
+        // المضيف يُسقط الراية من حاملها المصاب
+        if (m.real && isFlag() && isAuth() && FLAG && FLAG.carrier === m.v) dropFlag(S.karts.get(m.v));
       }
       else if (m.k === 'out') {
         const k = S.karts.get(m.id);
