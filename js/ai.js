@@ -130,7 +130,7 @@ export class Bot {
       const ang = Math.atan2(foe.pos.x - k.pos.x, foe.pos.z - k.pos.z) - k.heading;
       const aim = Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang)));
       const it = k.item;
-      if (it === 'missile') fire = fd < 70 && aim < 0.5;
+      if (it === 'missile') fire = fd < 90; // الصقر يلاحق أقرب مركبة بنفسه
       else if (it === 'jar' || it === 'dagger') fire = fd < 42 && aim < 0.3;
       else if (it === 'oil' || it === 'fake') { fire = fd < 25 && aim > 2.4; back = true; }
       else if (it === 'locust') fire = fd < 20;

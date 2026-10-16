@@ -154,6 +154,19 @@ function projMesh(type) {
   return g;
 }
 
+// أقرب مركبة لنقطة (مع استثناء صاحب السلاح، ومن خرج أو اختفى). fwd: إن وُجد، فقط من هم خلفه
+export function nearestKart(karts, pos, ownerId, back) {
+  let best = null, bd = Infinity;
+  for (const o of karts.values()) {
+    if (o.id === ownerId || o.out || o.cloakT > 0) continue;
+    const dx = o.pos.x - pos.x, dz = o.pos.z - pos.z;
+    if (back && dx * back.x + dz * back.z <= 0) continue;
+    const d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
 export class Projectiles {
   constructor(scene, track, fx) {
     this.scene = scene; this.track = track; this.fx = fx;
@@ -185,11 +198,23 @@ export class Projectiles {
     for (const p of this.list.values()) {
       p.age += dt;
       if (p.type === 'missile') {
-        const t = p.target && karts.get(p.target);
-        if (t && !t.out && p.age > 0.15) {
+        let t = p.target && karts.get(p.target);
+        // إن خرج الهدف أو اختفى: يلاحق الصقر أقرب مركبة أخرى
+        if (p.target && (!t || t.out || t.cloakT > 0)) {
+          t = nearestKart(karts, p.pos, p.owner, null);
+          p.target = t ? t.id : null;
+        }
+        let sp = 78;
+        if (t && p.age > 0.1) {
           const want = Math.atan2(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
           let d = want - p.h; d = Math.atan2(Math.sin(d), Math.cos(d));
-          p.h += Math.max(-3 * dt, Math.min(3 * dt, d));
+          // توجيه قوي حتى لا يفلت الهدف، وسرعة أعلى دائماً من سرعته
+          const dist = Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
+          // قريباً من الهدف: توجيه مباشر حتى لا يدور حوله
+          if (dist < 15) p.h = want; else p.h += Math.max(-6.5 * dt, Math.min(6.5 * dt, d));
+          sp = Math.max(78, Math.abs(t.speed) + 24);
+          // يتبع ارتفاع الهدف حتى لو قفز من منحدر
+          p.pos.y += (t.y + 1 - p.pos.y) * Math.min(1, dt * 8);
         } else if (this.track.kind === 'race') {
           // اتبع الطريق إن لم يكن هناك هدف
           const n = this.track.nearest(p.pos, p.idx);
@@ -201,11 +226,10 @@ export class Projectiles {
             p.h += Math.max(-1.5 * dt, Math.min(1.5 * dt, d));
           }
         }
-        const sp = 78;
         p.pos.x += Math.sin(p.h) * sp * dt; p.pos.z += Math.cos(p.h) * sp * dt;
         p.mesh.rotation.y = p.h;
         if (Math.random() < 0.8) this.fx.trail(p.pos.clone().addScaledVector(new THREE.Vector3(Math.sin(p.h), 0, Math.cos(p.h)), -1.2), 0xffa733);
-        if (p.age > 5) gone.push(p.id);
+        if (p.age > 7) gone.push(p.id);
       } else if (p.type === 'jar') {
         const sp = 55;
         p.pos.x += Math.sin(p.h) * sp * dt; p.pos.z += Math.cos(p.h) * sp * dt;
@@ -256,6 +280,8 @@ export class Projectiles {
       }
       if (p.type === 'dagger') {
         if (!p.ret && this.track.blocked(p.pos, p)) p.ret = true;
+      } else if (p.type === 'missile' && p.target) {
+        // الصقر الملاحق يطير فوق الجدران حتى يصل إلى هدفه
       } else if (p.type !== 'oil' && p.type !== 'meteor' && p.type !== 'fake') {
         if (this.track.blocked(p.pos, p)) gone.push(p.id);
       }
@@ -272,7 +298,8 @@ export class Projectiles {
       if (p.type === 'meteor' && p.pos.y > 3) continue;
       const r = p.type === 'meteor' ? 4.5 : p.type === 'oil' || p.type === 'jar' || p.type === 'fake' ? 2.6 : 2.2;
       const dx = p.pos.x - kart.pos.x, dz = p.pos.z - kart.pos.z;
-      if (dx * dx + dz * dz < r * r && kart.y < 3) return p;
+      const dy = p.type === 'missile' ? Math.abs(kart.y + 1 - p.pos.y) : kart.y;
+      if (dx * dx + dz * dz < r * r && dy < 3) return p;
     }
     return null;
   }

@@ -11,7 +11,7 @@ import { RenderPass } from '../lib/post/RenderPass.js';
 import { UnrealBloomPass } from '../lib/post/UnrealBloomPass.js';
 import { OutputPass } from '../lib/post/OutputPass.js';
 import { FX } from './fx.js';
-import { Boxes, Projectiles, ITEMS, ITEM_KEYS, DEFENSE, rollItem } from './items.js';
+import { Boxes, Projectiles, ITEMS, ITEM_KEYS, DEFENSE, rollItem, nearestKart } from './items.js';
 import { Bot } from './ai.js';
 import { Input, CONTROL_TIPS } from './input.js';
 import { Audio, localStorageGet, localStorageSet } from './audio.js';
@@ -20,6 +20,7 @@ import { Net } from './net.js';
 const LAPS = 3;
 const BATTLE_TIME = 180; // مدة المعركة بالثواني
 const LIVES = 3;
+const hearts = (n) => '❤️'.repeat(Math.max(0, Math.min(LIVES, n | 0)));
 const MAX_PLAYERS = 8;
 const $ = (id) => document.getElementById(id);
 const AR = (n) => String(n).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[d]);
@@ -405,7 +406,15 @@ function eliminate(k) {
   k.item = null; k.rolling = 0;
   fx.explode(k.pos.clone().setY(1), 0xff5a1a);
   rsend({ t: 'ev', k: 'out', id: k.id, time: k.outTime });
-  if (k === S.me) { showMsg('خرجت من المعركة!', 'hit'); audio.play('boom'); }
+  if (k === S.me) {
+    audio.play('boom');
+    if (S.solo) {
+      // لا داعي للمشاهدة في اللعب الفردي: تنتهي المعركة وتظهر النتائج
+      S.ended = true;
+      showMsg('خسرت! انتهت المعركة', 'hit');
+      S.resultsT = 2;
+    } else showMsg('خرجت من المعركة!', 'hit');
+  }
   else soundAt(k.pos, 'boom');
 }
 
@@ -464,23 +473,11 @@ function useItem(k, back, rank) {
   const isMe = k === S.me;
   switch (it) {
     case 'missile': {
-      let target = null;
-      if (!back && isBattle()) {
-        // المعركة: أقرب خصم أمامك
-        let best = Infinity;
-        for (const o of S.karts.values()) {
-          if (o === k || o.out) continue;
-          const dx = o.pos.x - k.pos.x, dz = o.pos.z - k.pos.z;
-          let a = Math.atan2(dx, dz) - k.heading; a = Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
-          const score = Math.hypot(dx, dz) * (a < 1.2 ? 1 : 3);
-          if (score < best) { best = score; target = o.id; }
-        }
-      } else if (!back) {
-        const r = rank.indexOf(k);
-        if (r > 0) target = rank[r - 1].id;
-      }
-      const s = back ? -3.5 : 3.5;
-      spawnProj({ type: 'missile', owner: k.id, x: k.pos.x + f.x * s, z: k.pos.z + f.z * s, h: k.heading + (back ? Math.PI : 0), target, back: !!back });
+      // صقر الصاروخ يلاحق أقرب مركبة (وعند الرمي للخلف: أقرب من هو خلفك)
+      const near = nearestKart(S.karts, k.pos, k.id, back ? new THREE.Vector3(-f.x, 0, -f.z) : null);
+      const target = near ? near.id : null;
+      const h0 = near ? Math.atan2(near.pos.x - k.pos.x, near.pos.z - k.pos.z) : k.heading + (back ? Math.PI : 0);
+      spawnProj({ type: 'missile', owner: k.id, x: k.pos.x + Math.sin(h0) * 1.5, z: k.pos.z + Math.cos(h0) * 1.5, h: h0, target, back: !!back });
       if (isMe) audio.play('fire');
       break;
     }
@@ -709,7 +706,7 @@ function updateHUD(rank, dt) {
   if (!me) return;
   const battle = isBattle();
   if (battle) {
-    $('lap').innerHTML = me.out ? 'تشاهد المعركة 👀' : '❤️'.repeat(me.lives) + '🖤'.repeat(LIVES - me.lives);
+    $('lap').innerHTML = me.out ? 'تشاهد المعركة 👀' : hearts(me.lives) + '🖤'.repeat(LIVES - Math.max(0, Math.min(LIVES, me.lives)));
     $('time').textContent = fmtTime(Math.max(0, S.battleT)).slice(0, -3);
   } else {
     const lap = Math.min(LAPS, Math.max(1, Math.floor(me.prog / track.N) + 1));
@@ -748,7 +745,7 @@ function updateHUD(rank, dt) {
   standT -= dt;
   if (standT <= 0) {
     standT = 0.3;
-    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${esc(k.name)}${battle ? ' ' + (k.out ? '💀' : '❤️'.repeat(k.lives)) : k.finished ? ' 🏁' : ''}</li>`).join('');
+    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${esc(k.name)}${battle ? ' ' + (k.out ? '💀' : hearts(k.lives)) : k.finished ? ' 🏁' : ''}</li>`).join('');
   }
   drawMinimap();
   // النتائج
@@ -776,7 +773,7 @@ function renderResults(rank) {
   $('res-list').innerHTML = rank.map((k, i) => `<tr class="${k === S.me ? 'me' : ''}">
     <td>${i < 3 ? ['🥇', '🥈', '🥉'][i] : AR(i + 1)}</td>
     <td><span class="nm"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${esc(k.name)}${k.bot ? ' <small>(آلي)</small>' : ''}</span></td>
-    <td>${isBattle() ? `<span dir="rtl">${k.out ? '💀 خرج' : '❤️'.repeat(k.lives)} · 🎯 ${AR(k.hits)}</span>` : k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
+    <td>${isBattle() ? `<span dir="rtl">${k.out ? '💀 خرج' : hearts(k.lives)} · 🎯 ${AR(k.hits)}</span>` : k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
 }
 
 function showScreen(id) {
