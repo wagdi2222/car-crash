@@ -118,8 +118,10 @@ export class Track {
     this.buildRoad();
     this.buildStartGate();
     this.buildPads();
+    this.jumpSpots = [];
+    this.buildJumps();
     this.b = new Builder(this.group, rng(seed + 1));
-    ({ desert: () => this.sceneryDesert(), souq: () => this.scenerySouq(), coast: () => this.sceneryCoast(), canyon: () => this.sceneryCanyon() })[this.theme.scenery]();
+    ({ desert: () => this.sceneryDesert(), souq: () => this.scenerySouq(), coast: () => this.sceneryCoast(), canyon: () => this.sceneryCanyon(), mountain: () => this.sceneryMountain() })[this.theme.scenery]();
     for (const i of course.boxes) {
       const p = this.points[i], r = this.rights[i];
       for (const lat of [-8, -2.7, 2.7, 8]) this.boxSpots.push(new THREE.Vector3(p.x + r.x * lat, 1.4, p.z + r.z * lat));
@@ -364,6 +366,20 @@ export class Track {
     }
   }
 
+  // منحدرات قفز بعرض الطريق
+  buildJumps() {
+    const geo = rampGeometry(ROAD_W, 6, 1.3);
+    const mat = new THREE.MeshLambertMaterial({ map: rampTexture() });
+    for (const i of this.course.jumps || []) {
+      const p = this.points[i], t = this.tangents[i];
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(p.x, 0.02, p.z);
+      m.rotation.y = Math.atan2(t.x, t.z);
+      this.group.add(m);
+      this.jumpSpots.push({ x: p.x, z: p.z, tx: t.x, tz: t.z, hw: ROAD_W / 2 + 2, hl: 3 });
+    }
+  }
+
   // ---------- ديكور كل مكان ----------
   edgeLanterns(step = 24, h = 5) {
     for (let i = 10; i < this.N; i += step) {
@@ -376,16 +392,52 @@ export class Track {
   sceneryDesert() {
     const b = this.b, r = b.r;
     for (let k = 0; k < 70; k++) { const pt = this.place(LIMIT + 4, LIMIT + 30); if (pt) b.palm(pt[0], pt[1], 7 + r() * 6); }
-    const oasis = new THREE.Mesh(new THREE.CircleGeometry(30, 32), new THREE.MeshLambertMaterial({ color: 0x2bb3c0, emissive: 0x062a33 }));
-    oasis.rotation.x = -Math.PI / 2; oasis.position.set(-40, 0.05, 80); this.group.add(oasis);
-    const shore = new THREE.Mesh(new THREE.RingGeometry(30, 36, 32), new THREE.MeshLambertMaterial({ color: 0x9cbf5a }));
-    shore.rotation.x = -Math.PI / 2; shore.position.set(-40, 0.04, 80); this.group.add(shore);
-    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; b.palm(-40 + Math.cos(a) * 34, 80 + Math.sin(a) * 34, 8 + r() * 5); }
+    // الواحة: أبعد نقطة عن الطريق داخل الحلبة
+    let ox = 0, oz = 0, od = 0;
+    for (let x = -200; x <= 200; x += 20) for (let z = -150; z <= 250; z += 20) { const d = this.distToRoad(x, z); if (d > od && d < 120) { od = d; ox = x; oz = z; } }
+    const orad = Math.min(30, od - LIMIT - 8);
+    if (orad > 10) {
+      const oasis = new THREE.Mesh(new THREE.CircleGeometry(orad, 32), new THREE.MeshLambertMaterial({ color: 0x2bb3c0, emissive: 0x062a33 }));
+      oasis.rotation.x = -Math.PI / 2; oasis.position.set(ox, 0.05, oz); this.group.add(oasis);
+      const shore = new THREE.Mesh(new THREE.RingGeometry(orad, orad + 6, 32), new THREE.MeshLambertMaterial({ color: 0x9cbf5a }));
+      shore.rotation.x = -Math.PI / 2; shore.position.set(ox, 0.04, oz); this.group.add(shore);
+      for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; b.palm(ox + Math.cos(a) * (orad + 4), oz + Math.sin(a) * (orad + 4), 8 + r() * 5); }
+    }
     for (let k = 0; k < 26; k++) { const pt = this.place(LIMIT + 14, LIMIT + 60); if (pt) b.house(pt[0], pt[1]); }
     for (let k = 0; k < 6; k++) { const pt = this.place(LIMIT + 22, LIMIT + 70); if (pt) b.minaret(pt[0], pt[1]); }
     for (let k = 0; k < 9; k++) { const pt = this.place(LIMIT + 6, LIMIT + 25); if (pt) b.camel(pt[0], pt[1]); }
-    this.edgeLanterns();
+    this.edgeLanterns(this.theme.night ? 14 : 24);
     for (let k = 0; k < 40; k++) { const pt = this.place(LIMIT + 3, LIMIT + 45); if (pt) b.rock(pt[0], pt[1]); }
+    if (this.theme.night) {
+      // نار مخيم وأضواء دافئة في الليل
+      for (const i of [0, 120, 240, 360, 480]) {
+        const p = this.points[i];
+        const l = new THREE.PointLight(0xffa040, 700, 110, 1.6);
+        l.position.set(p.x, 10, p.z);
+        this.group.add(l);
+      }
+      for (let k = 0; k < 6; k++) { const pt = this.place(LIMIT + 10, LIMIT + 30); if (pt) b.tent(pt[0], pt[1]); }
+    }
+  }
+
+  sceneryMountain() {
+    const b = this.b, r = b.r;
+    const greys = [new THREE.MeshLambertMaterial({ color: 0x7d7a72, flatShading: true }), new THREE.MeshLambertMaterial({ color: 0x6a6f68, flatShading: true }), new THREE.MeshLambertMaterial({ color: 0x8f8778, flatShading: true })];
+    for (let k = 0; k < 30; k++) { const pt = this.place(LIMIT + 35, LIMIT + 130); if (pt) b.mesa(pt[0], pt[1], 16 + r() * 26, 40 + r() * 80, greys[k % 3]); }
+    for (let k = 0; k < 45; k++) { const pt = this.place(LIMIT + 3, LIMIT + 40); if (pt) b.rock(pt[0], pt[1], 1.5 + r() * 3.5, greys[k % 3]); }
+    // بساتين نخيل وقرى طينية بأبراج مراقبة
+    for (let k = 0; k < 50; k++) { const pt = this.place(LIMIT + 4, LIMIT + 28); if (pt) b.palm(pt[0], pt[1], 7 + r() * 5); }
+    const mud = new THREE.MeshLambertMaterial({ color: 0xb08a5e });
+    for (let k = 0; k < 18; k++) { const pt = this.place(LIMIT + 14, LIMIT + 45); if (pt) b.house(pt[0], pt[1], { mat: mud, dome: false }); }
+    for (let k = 0; k < 5; k++) {
+      const pt = this.place(LIMIT + 20, LIMIT + 50);
+      if (!pt) continue;
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(4, 5, 14, 12), mud); t.position.set(pt[0], 7, pt[1]); this.group.add(t);
+      for (let c = 0; c < 8; c++) { const a = c / 8 * Math.PI * 2; const m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.4, 1.2), mud); m.position.set(pt[0] + Math.cos(a) * 3.8, 14.6, pt[1] + Math.sin(a) * 3.8); this.group.add(m); }
+    }
+    for (let k = 0; k < 15; k++) { const pt = this.place(LIMIT + 4, LIMIT + 40); if (pt) b.acacia(pt[0], pt[1]); }
+    for (let k = 0; k < 6; k++) { const pt = this.place(LIMIT + 6, LIMIT + 25); if (pt) b.camel(pt[0], pt[1]); }
+    this.edgeLanterns(30, 5);
   }
 
   scenerySouq() {
@@ -468,6 +520,24 @@ export class Track {
     }
     this.edgeLanterns(30, 5);
   }
+}
+
+// منحدر على شكل إسفين: يرتفع من ٠ إلى h على طول len
+export function rampGeometry(width, len, h) {
+  const sh = new THREE.Shape();
+  sh.moveTo(-len / 2, 0); sh.lineTo(len / 2, h); sh.lineTo(len / 2, 0); sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: width, bevelEnabled: false });
+  g.translate(0, 0, -width / 2);
+  g.rotateY(-Math.PI / 2);
+  return g;
+}
+
+export function rampTexture() {
+  return canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = '#f2c14e'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#7a1f1f';
+    for (let k = -w; k < w * 2; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 16, 0); g.lineTo(k + 16 - h, h); g.lineTo(k - h, h); g.fill(); }
+  });
 }
 
 export function padTexture() {

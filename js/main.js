@@ -360,6 +360,7 @@ function updateRace(dt) {
 
 function onMyEvents(ev) {
   if (ev.hop) audio.play('hop');
+  if (ev.jump) { audio.play('boost'); S.camShake = 0.1; }
   if (ev.driftLvl) audio.play('lvl');
   if (ev.driftBoost || ev.pad) { audio.play('boost'); S.camShake = 0.15; }
   if (ev.wall && Math.random() < 0.1) audio.play('wall');
@@ -644,7 +645,7 @@ let mmT = null;
 function buildMinimap() {
   const W = mm.width, H = mm.height;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  if (track.kind === 'arena') { minX = minZ = -track.R; maxX = maxZ = track.R; }
+  if (track.kind === 'arena') ({ minX, maxX, minZ, maxZ } = track.mapBounds);
   else for (const p of track.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
   const s = Math.min((W - 24) / (maxX - minX), (H - 24) / (maxZ - minZ));
   // نقلب X حتى تطابق الخريطة اتجاه الكاميرا المعتاد من الأعلى
@@ -652,16 +653,7 @@ function buildMinimap() {
   mmBase.width = W; mmBase.height = H;
   const g = mmBase.getContext('2d');
   g.lineJoin = 'round';
-  if (track.kind === 'arena') {
-    const [cx, cy] = mmT(0, 0), rr = track.R * s;
-    g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fillStyle = 'rgba(242,216,167,.55)'; g.fill();
-    g.lineWidth = 3; g.strokeStyle = 'rgba(40,20,5,.7)'; g.stroke();
-    for (const o of track.obstacles) {
-      const [ox, oy] = mmT(o.x, o.z);
-      g.beginPath(); g.arc(ox, oy, Math.max(2, o.r * s), 0, Math.PI * 2); g.fillStyle = 'rgba(60,35,15,.8)'; g.fill();
-    }
-    return;
-  }
+  if (track.kind === 'arena') { track.drawMap(g, mmT, s); return; }
   const path = () => { g.beginPath(); track.points.forEach((p, i) => { const [x, y] = mmT(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); };
   g.strokeStyle = 'rgba(40,20,5,.65)'; g.lineWidth = 11; path(); g.stroke();
   g.strokeStyle = '#f2d8a7'; g.lineWidth = 6; path(); g.stroke();

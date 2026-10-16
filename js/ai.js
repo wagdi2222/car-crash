@@ -72,7 +72,6 @@ export class Bot {
   // المعركة: اجمع سلاحاً، طارد أقرب خصم، وتجنّب الجدران والعوائق
   thinkArena(dt, arena, karts, boxes) {
     const k = this.k;
-    const fx = Math.sin(k.heading), fz = Math.cos(k.heading);
     let foe = null, fd = Infinity;
     for (const o of karts.values()) {
       if (o === k || o.out) continue;
@@ -90,20 +89,36 @@ export class Bot {
     }
     if (tx === undefined && foe) { tx = foe.pos.x + Math.sin(foe.heading) * 8; tz = foe.pos.z + Math.cos(foe.heading) * 8; }
     if (tx === undefined) { tx = 0; tz = 0; }
-    // تجنّب العوائق القريبة أمامنا
-    for (const o of arena.obstacles) {
-      const ox = o.x - k.pos.x, oz = o.z - k.pos.z;
-      const ahead = ox * fx + oz * fz;
-      const side = ox * fz - oz * fx;
-      if (ahead > 0 && ahead < o.r + 12 && Math.abs(side) < o.r + 3) {
-        tx = k.pos.x + fx * 10 + (side > 0 ? -fz : fz) * 14;
-        tz = k.pos.z + fz * 10 + (side > 0 ? fx : -fx) * 14;
+    // بعد الانحشار: تجوّل نحو نقطة عشوائية قليلاً بدل الهدف نفسه
+    if (this.wanderT > 0) { this.wanderT -= dt; tx = this.wx; tz = this.wz; }
+    // ملاحة: إن كان الطريق المباشر مسدوداً نجرّب اتجاهات قريبة ونختار أوضحها
+    const clear = (ang, maxD) => {
+      const sx = Math.sin(ang), sz = Math.cos(ang);
+      for (let d = 4; d <= maxD; d += 4) if (arena.solidAt(k.pos.x + sx * d, k.pos.z + sz * d, 2.4)) return d;
+      return maxD + 4;
+    };
+    const direct = Math.atan2(tx - k.pos.x, tz - k.pos.z);
+    const tdist = Math.min(40, Math.hypot(tx - k.pos.x, tz - k.pos.z));
+    let want = direct;
+    if (clear(direct, tdist) <= tdist) {
+      let best = -Infinity;
+      for (const off of [0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.45, -1.45, 1.9, -1.9, 2.5, -2.5]) {
+        const c = clear(direct + off, 40);
+        const score = c - Math.abs(off) * 9;
+        if (score > best) { best = score; want = direct + off; }
       }
     }
-    // ابتعد عن السور
-    const dc = Math.hypot(k.pos.x, k.pos.z);
-    if (dc > arena.R - 14 && (k.pos.x * fx + k.pos.z * fz) > 0) { tx = 0; tz = 0; }
-    const want = Math.atan2(tx - k.pos.x, tz - k.pos.z);
+    // التخلص من الانحشار: رجوع للخلف قليلاً مع لفّ المقود
+    if (this.revT > 0) {
+      this.revT -= dt;
+      return { up: false, down: true, steer: this.revSteer, drift: false, driftPressed: false, fire: false, back: false };
+    }
+    if (Math.abs(k.speed) < 4 && k.spinT <= 0) this.stuckT = (this.stuckT || 0) + dt; else this.stuckT = 0;
+    if (this.stuckT > 1.0) {
+      this.stuckT = 0; this.revT = 0.9; this.revSteer = Math.random() > 0.5 ? 1 : -1;
+      const a = Math.random() * Math.PI * 2;
+      this.wx = k.pos.x * 0.3 + Math.cos(a) * 60; this.wz = k.pos.z * 0.3 + Math.sin(a) * 60; this.wanderT = 3;
+    }
     let d = want - k.heading; d = Math.atan2(Math.sin(d), Math.cos(d));
     const steer = Math.max(-1, Math.min(1, d * 2.5));
     const down = Math.abs(d) > 2.4 && k.speed < 10;

@@ -396,6 +396,21 @@ export class Kart {
       if ((p.x - this.pos.x) ** 2 + (p.z - this.pos.z) ** 2 < 14 && this.boostT < 0.9) { this.boost(1.1); ev.pad = true; }
     }
 
+    // منحدرات القفز
+    if (this.y <= 0.001 && this.speed > 12) {
+      for (const j of track.jumpSpots || []) {
+        const dx = this.pos.x - j.x, dz = this.pos.z - j.z;
+        const along = dx * j.tx + dz * j.tz, side = dx * j.tz - dz * j.tx;
+        if (Math.abs(along) < j.hl && Math.abs(side) < j.hw) {
+          this.vy = 8 + this.speed * 0.12;
+          this.y = 0.05;
+          this.drifting = false;
+          ev.jump = true;
+          break;
+        }
+      }
+    }
+
     // حدود الحلبة والعوائق
     const b = track.bound(this);
     if (b.wall) { this.speed *= Math.pow(0.35, dt); ev.wall = true; }
