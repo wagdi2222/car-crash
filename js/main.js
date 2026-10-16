@@ -557,7 +557,13 @@ function initMenu() {
   $('help-back').onclick = () => showScreen('menu');
   $('mute').onclick = () => { audio.init(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
   $('mute').textContent = audio.muted ? '🔇' : '🔊';
-  $('quit').onclick = () => { if (confirm('هل تريد الخروج من السباق؟')) leaveToMenu(); };
+  // ضغطتان للخروج بدل نافذة التأكيد (لا تعمل في كل المتصفحات المضمّنة)
+  let quitAt = 0;
+  $('quit').onclick = () => {
+    if (performance.now() - quitAt < 2500) { quitAt = 0; leaveToMenu(); return; }
+    quitAt = performance.now();
+    showMsg('اضغط ✕ مرة أخرى للخروج', 'hit');
+  };
   $('res-menu').onclick = leaveToMenu;
   $('res-again').onclick = () => {
     if (S.solo) $('btn-solo').onclick();
