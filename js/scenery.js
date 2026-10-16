@@ -81,7 +81,7 @@ export class Builder {
       wall: L(0xf1e2c4), wall2: L(0xd8b98a), door: L(0x5a2d0c),
       teal: L(0x1aa39a), gold: L(0xf2c14e, { emissive: 0x3a2500 }), blue: L(0x2e5aa8),
       camel: L(0xc08a4f), rug: L(0xb02e2e), pole: L(0x3b2a1a),
-      lamp: new THREE.MeshBasicMaterial({ color: 0xffc85a }), cap: L(0xc9962c),
+      lamp: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc85a).multiplyScalar(2.2) }), cap: L(0xc9962c),
       rock: L(0xa8683a, { flatShading: true }), dark: L(0x222222), white: L(0xffffff),
     };
     const lg = new THREE.PlaneGeometry(1.6, 7, 1, 4);
@@ -322,7 +322,8 @@ export class Builder {
   // سلسلة فوانيس معلّقة فوق الطريق
   stringLights(a, b, h = 9) {
     const n = 14;
-    const mats = [new THREE.MeshBasicMaterial({ color: 0xffc85a }), new THREE.MeshBasicMaterial({ color: 0xff6b4a }), new THREE.MeshBasicMaterial({ color: 0x7ff7e8 })];
+    const glow = (c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(2.2) });
+    const mats = [glow(0xffc85a), glow(0xff6b4a), glow(0x7ff7e8)];
     const geo = new THREE.OctahedronGeometry(0.4, 0);
     for (let k = 0; k <= n; k++) {
       const t = k / n;

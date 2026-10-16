@@ -42,7 +42,14 @@ export function buildEnvironment(group, scene, theme, seed) {
   group.add(new THREE.HemisphereLight(theme.hemi[0], theme.hemi[1], theme.hemi[2]));
   const sun = new THREE.DirectionalLight(theme.sun[0], theme.sun[1]);
   sun.position.copy(v3(s.sun)).multiplyScalar(500);
-  group.add(sun);
+  // ظلال تتبع اللاعب (تُفعَّل حسب إعداد الجودة)
+  sun.castShadow = true;
+  sun.shadow.camera.left = -75; sun.shadow.camera.right = 75;
+  sun.shadow.camera.top = 75; sun.shadow.camera.bottom = -75;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 500;
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+  sun.userData.dir = v3(s.sun).normalize();
+  group.add(sun, sun.target);
 
   const r = rng(seed);
   const gd = theme.ground;
@@ -80,7 +87,7 @@ export function buildEnvironment(group, scene, theme, seed) {
       group.add(m);
     }
   }
-  return tex;
+  return { sky, sun };
 }
 
 export class Track {
@@ -106,7 +113,7 @@ export class Track {
     this.group = new THREE.Group();
     scene.add(this.group);
     const seed = course.id.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
-    buildEnvironment(this.group, scene, this.theme, seed);
+    this.env = buildEnvironment(this.group, scene, this.theme, seed);
     if (this.theme.water) this.buildIsland();
     this.buildRoad();
     this.buildStartGate();

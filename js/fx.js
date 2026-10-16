@@ -115,6 +115,13 @@ export class FX {
     this.flashes.push({ m, t: 0 });
   }
 
+  // سحابة جراد تنتشر حول نقطة
+  swarm(p) {
+    for (let i = 0; i < 160; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 10 + Math.random() * 22;
+      this.norm.add(p.clone().add(V(rnd(3), Math.random() * 3, rnd(3))), V(Math.cos(a) * sp, 1 + Math.random() * 4, Math.sin(a) * sp), Math.random() > 0.5 ? 0x4a5a1a : 0x6b4a1a, 1.2, 0.45, 0, 0);
+    }
+  }
   pickup(p) { for (let i = 0; i < 25; i++) this.add.add(p, V(rnd(10), Math.random() * 8, rnd(10)), Math.random() > 0.5 ? 0xf2c14e : 0x5ce1e6, 0.5, 0.6, 0, 10); }
   splash(p) { for (let i = 0; i < 30; i++) this.norm.add(p, V(rnd(8), Math.random() * 5, rnd(8)), 0x1d1208, 0.8, 0.8, 0, 12); }
 

@@ -43,21 +43,24 @@ export class Bot {
       this.itemDelay -= dt;
       if (this.itemDelay <= 0) {
         const it = k.item;
-        if (it === 'missile' || it === 'jar') {
+        if (it === 'missile' || it === 'jar' || it === 'dagger') {
           for (const o of karts.values()) {
             if (o === k) continue;
             const dp = o.prog - k.prog;
             if (dp > 3 && dp < 40) { fire = true; break; }
           }
           if (this.itemDelay < -6) fire = true;
-        } else if (it === 'oil') {
+        } else if (it === 'oil' || it === 'fake') {
           for (const o of karts.values()) {
             const dp = k.prog - o.prog;
             if (o !== k && dp > 2 && dp < 25) { fire = true; break; }
           }
           if (this.itemDelay < -5) fire = true;
           back = true;
-        } else if (it === 'shield') {
+        } else if (it === 'locust') {
+          for (const o of karts.values()) if (o !== k && Math.hypot(o.pos.x - k.pos.x, o.pos.z - k.pos.z) < 22) fire = true;
+          if (this.itemDelay < -6) fire = true;
+        } else if (it === 'shield' || it === 'amulet' || it === 'orbit' || it === 'cloak') {
           fire = this.itemDelay < -1;
         } else fire = true;
         if (fire) this.itemDelay = 1 + Math.random() * 3;
@@ -113,9 +116,10 @@ export class Bot {
       const aim = Math.abs(Math.atan2(Math.sin(ang), Math.cos(ang)));
       const it = k.item;
       if (it === 'missile') fire = fd < 70 && aim < 0.5;
-      else if (it === 'jar') fire = fd < 40 && aim < 0.25;
-      else if (it === 'oil') { fire = fd < 25 && aim > 2.4; back = true; }
-      else if (it === 'shield') fire = this.itemDelay < -1;
+      else if (it === 'jar' || it === 'dagger') fire = fd < 42 && aim < 0.3;
+      else if (it === 'oil' || it === 'fake') { fire = fd < 25 && aim > 2.4; back = true; }
+      else if (it === 'locust') fire = fd < 20;
+      else if (it === 'shield' || it === 'amulet' || it === 'orbit' || it === 'cloak') fire = this.itemDelay < -1;
       else fire = this.itemDelay < 0;
       if (this.itemDelay < -8) fire = true;
       if (fire) this.itemDelay = 1 + Math.random() * 2;

@@ -1,99 +1,180 @@
 // السيارات: الشكل والفيزياء
 import * as THREE from '../lib/three.module.min.js';
 
+// st = [السرعة، التسارع، التحكم] من ١ إلى ٥
 export const CHARS = [
-  { name: 'صقر', color: 0xd62828, trim: 0xf2c14e, wear: 'ghutra', cloth: 0xffffff, desc: 'سريع كالصقر' },
-  { name: 'ليلى', color: 0x7b2cbf, trim: 0xffd166, wear: 'hijab', cloth: 0xff70a6, desc: 'ملكة الانجراف' },
-  { name: 'جحا', color: 0x2a9d8f, trim: 0xf4e285, wear: 'turban', cloth: 0xf4e285, desc: 'ماكر وظريف' },
-  { name: 'شهرزاد', color: 0xe9a23b, trim: 0x9b2226, wear: 'hijab', cloth: 0x9b2226, desc: 'ألف حكاية وحكاية' },
-  { name: 'سندباد', color: 0x1d70b8, trim: 0xffffff, wear: 'turban', cloth: 0xffffff, desc: 'بحّار الصحراء' },
-  { name: 'عنترة', color: 0x333333, trim: 0xf77f00, wear: 'ghutra', cloth: 0xd62828, desc: 'فارس لا يُهزم' },
+  { name: 'صقر', color: 0xd62828, trim: 0xf2c14e, wear: 'ghutra', cloth: 0xffffff, desc: 'سريع كالصقر', st: [5, 3, 2] },
+  { name: 'ليلى', color: 0x7b2cbf, trim: 0xffd166, wear: 'hijab', cloth: 0xff70a6, desc: 'ملكة الانجراف', st: [3, 3, 5] },
+  { name: 'جحا', color: 0x2a9d8f, trim: 0xf4e285, wear: 'turban', cloth: 0xf4e285, desc: 'ماكر وظريف', st: [2, 5, 4] },
+  { name: 'شهرزاد', color: 0xe9a23b, trim: 0x9b2226, wear: 'hijab', cloth: 0x9b2226, desc: 'ألف حكاية وحكاية', st: [3, 4, 3] },
+  { name: 'سندباد', color: 0x1d70b8, trim: 0xffffff, wear: 'turban', cloth: 0xffffff, desc: 'بحّار الصحراء', st: [4, 3, 3] },
+  { name: 'عنترة', color: 0x333333, trim: 0xf77f00, wear: 'ghutra', cloth: 0xd62828, desc: 'فارس لا يُهزم', st: [4, 4, 2] },
+  { name: 'علاء الدين', color: 0xff006e, trim: 0xffd166, wear: 'fez', cloth: 0xc1121f, shirt: 0x7b2cbf, desc: 'صاحب المصباح', st: [3, 5, 3] },
+  { name: 'ياسمين', color: 0x00b4d8, trim: 0xf2c14e, wear: 'tiara', cloth: 0x48cae4, shirt: 0x48cae4, desc: 'أميرة سريعة البديهة', st: [2, 4, 5] },
+  { name: 'المارد', color: 0x3a0ca3, trim: 0xf2c14e, wear: 'genie', cloth: 0xf2c14e, skin: 0x4ea8de, shirt: 0x3a0ca3, desc: 'قوة خارقة وسرعة هائلة', st: [5, 2, 3] },
+  { name: 'حمدان', color: 0x80b918, trim: 0x111111, wear: 'shemagh', cloth: 0xd62828, desc: 'صقّار من البادية', st: [4, 2, 4] },
 ];
 
 export const MAX_SPEED = 46;
 const ACC = 26, BRAKE = 55, REV = -14;
 
-export const F = { DRIFT: 1, DLEFT: 2, SPIN: 4, SHIELD: 8, BOOST: 16, GENIE: 32, CARPET: 64, STORM: 128, FIN: 256, AIR: 512, OUT: 1024 };
+export const F = { DRIFT: 1, DLEFT: 2, SPIN: 4, SHIELD: 8, BOOST: 16, GENIE: 32, CARPET: 64, STORM: 128, FIN: 256, AIR: 512, OUT: 1024, CLOAK: 2048, AMULET: 4096 };
+
+// هل الظلال الحقيقية مفعّلة؟ (تُضبط من إعداد الجودة)
+export const KART_GFX = { realShadows: false };
+
+const STD = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0, ...o });
+
+function checkerTex(a, b) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = a; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = b; g.lineWidth = 3;
+  for (let i = -64; i < 128; i += 10) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 64, 64); g.stroke(); g.beginPath(); g.moveTo(i + 64, 0); g.lineTo(i, 64); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2);
+  return t;
+}
+
+// جسم الكارت: مقطع جانبي منحني يُمدّ بالعرض
+function bodyGeometry() {
+  const sh = new THREE.Shape();
+  sh.moveTo(-1.9, 0.3);
+  sh.lineTo(-1.9, 0.95);
+  sh.quadraticCurveTo(-1.6, 1.18, -1.1, 1.08);
+  sh.lineTo(-0.85, 0.82);
+  sh.lineTo(0.45, 0.82);
+  sh.quadraticCurveTo(1.0, 1.12, 1.6, 0.98);
+  sh.lineTo(2.85, 0.62);
+  sh.quadraticCurveTo(3.15, 0.48, 2.85, 0.33);
+  sh.lineTo(-1.9, 0.3);
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: 1.6, bevelEnabled: true, bevelThickness: 0.18, bevelSize: 0.16, bevelSegments: 3, curveSegments: 10 });
+  geo.translate(0, 0, -0.8);
+  geo.rotateY(-Math.PI / 2);
+  return geo;
+}
+let BODY_GEO = null;
 
 function buildModel(ch) {
   const g = new THREE.Group();
   const body = new THREE.Group();
   g.add(body);
-  const paint = new THREE.MeshLambertMaterial({ color: ch.color });
-  const trim = new THREE.MeshLambertMaterial({ color: ch.trim, emissive: new THREE.Color(ch.trim).multiplyScalar(0.15) });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x1b1b1b });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc68642 });
-  const cloth = new THREE.MeshLambertMaterial({ color: ch.cloth });
+  const paint = STD(ch.color, { roughness: 0.28, metalness: 0.35 });
+  const trim = STD(ch.trim, { roughness: 0.3, metalness: 0.8 });
+  const dark = STD(0x1b1b1b, { roughness: 0.85 });
+  const chrome = STD(0xdddddd, { roughness: 0.2, metalness: 1 });
+  const skin = STD(ch.skin || 0xc68642, { roughness: 0.7 });
+  const cloth = ch.wear === 'shemagh' ? STD(0xffffff, { map: checkerTex('#ffffff', '#c1121f'), roughness: 0.9 }) : STD(ch.cloth, { roughness: 0.9 });
+  const shirt = STD(ch.shirt || 0xf5f0e6, { roughness: 0.9 });
+  const add = (geo, mat, x, y, z, parent = body) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
 
-  const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 3.4), paint);
-  base.position.y = 0.6; body.add(base);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.4, 1.4), paint);
-  nose.position.set(0, 0.62, 2.2); body.add(nose);
-  const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.25, 0.3), trim);
-  bumper.position.set(0, 0.5, 2.95); body.add(bumper);
-  const side1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 2.6), trim);
-  side1.position.set(1.12, 0.75, 0); body.add(side1);
-  const side2 = side1.clone(); side2.position.x = -1.12; body.add(side2);
-  // جناح خلفي على شكل قوس
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.15, 0.6), trim);
-  wing.position.set(0, 1.55, -1.6); body.add(wing);
+  BODY_GEO = BODY_GEO || bodyGeometry();
+  add(BODY_GEO, paint, 0, 0, 0);
+  // جوانب انسيابية
   for (const s of [-1, 1]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.7, 0.3), dark);
-    post.position.set(s * 0.8, 1.15, -1.6); body.add(post);
+    const pod = add(new THREE.CapsuleGeometry(0.3, 1.7, 4, 10), paint, s * 1.12, 0.52, 0.1);
+    pod.rotation.x = Math.PI / 2;
+    add(new THREE.BoxGeometry(0.08, 0.12, 1.9), trim, s * 1.43, 0.55, 0.1);
   }
-  const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.35, 0), trim);
-  star.position.set(0, 0.95, 2.4); star.scale.set(1, 0.4, 1); body.add(star);
-  // عوادم
+  // الجناح الأمامي
+  add(new THREE.BoxGeometry(2.7, 0.08, 0.55), trim, 0, 0.32, 3.0);
+  for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.08, 0.35, 0.6), dark, s * 1.35, 0.42, 3.0);
+  // الجناح الخلفي
+  const wing = add(new THREE.BoxGeometry(2.5, 0.1, 0.75), trim, 0, 1.78, -1.75);
+  wing.rotation.x = -0.12;
   for (const s of [-1, 1]) {
-    const ex = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.6, 8), trim);
-    ex.rotation.x = Math.PI / 2; ex.position.set(s * 0.5, 0.75, -1.9); body.add(ex);
+    add(new THREE.BoxGeometry(0.08, 0.6, 0.9), paint, s * 1.25, 1.62, -1.75);
+    add(new THREE.BoxGeometry(0.1, 0.75, 0.18), dark, s * 0.6, 1.3, -1.7);
   }
+  // المحرك والعوادم
+  add(new THREE.CylinderGeometry(0.45, 0.5, 0.6, 12), chrome, 0, 1.05, -1.55);
+  for (const s of [-1, 1]) {
+    const ex = add(new THREE.CylinderGeometry(0.13, 0.18, 0.7, 10), chrome, s * 0.45, 0.8, -2.05);
+    ex.rotation.x = Math.PI / 2 + 0.25;
+  }
+  // أضواء أمامية وخلفية (تتوهج مع تأثير الإضاءة)
+  const head = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff2c0).multiplyScalar(2.5) });
+  const tail = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff2a2a).multiplyScalar(2) });
+  for (const s of [-1, 1]) {
+    add(new THREE.SphereGeometry(0.13, 10, 8), head, s * 0.55, 0.62, 2.95);
+    add(new THREE.BoxGeometry(0.35, 0.12, 0.05), tail, s * 0.55, 0.85, -2.08);
+  }
+  // نجمة على المقدمة
+  const star = add(new THREE.OctahedronGeometry(0.32, 0), trim, 0, 0.98, 1.75);
+  star.scale.set(1, 0.35, 1);
+  // المقعد
+  add(new THREE.BoxGeometry(1.1, 0.9, 0.25), dark, 0, 1.2, -0.95);
+
   // السائق
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 0.9, 10), new THREE.MeshLambertMaterial({ color: 0xf5f0e6 }));
-  torso.position.set(0, 1.25, -0.4); body.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), skin);
-  head.position.set(0, 2.0, -0.4); body.add(head);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  const torso = add(new THREE.CapsuleGeometry(0.4, 0.45, 4, 10), shirt, 0, 1.4, -0.45);
+  torso.scale.z = 0.85;
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), eyeMat);
-    eye.position.set(s * 0.15, 2.05, -0.02); body.add(eye);
+    const arm = add(new THREE.CapsuleGeometry(0.11, 0.65, 3, 6), shirt, s * 0.42, 1.45, -0.05);
+    arm.rotation.x = 1.1; arm.rotation.z = -s * 0.25;
+    add(new THREE.SphereGeometry(0.12, 8, 6), skin, s * 0.3, 1.3, 0.35);
   }
-  if (ch.wear === 'ghutra') {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), cloth);
-    cap.position.set(0, 2.02, -0.42); body.add(cap);
-    const drape = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.75, 0.9, 12, 1, true, Math.PI * 0.35, Math.PI * 1.3), cloth);
-    drape.position.set(0, 1.65, -0.45); drape.rotation.y = Math.PI; body.add(drape);
-    const agal = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 6, 18), dark);
-    agal.rotation.x = Math.PI / 2; agal.position.set(0, 2.32, -0.42); body.add(agal);
+  const hy = 2.08, hz = -0.42;
+  add(new THREE.SphereGeometry(0.42, 18, 14), skin, 0, hy, hz);
+  const eyeW = new THREE.MeshBasicMaterial({ color: 0xffffff }), eyeB = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  for (const s of [-1, 1]) {
+    add(new THREE.SphereGeometry(0.085, 8, 6), eyeW, s * 0.15, hy + 0.06, hz + 0.36);
+    add(new THREE.SphereGeometry(0.045, 6, 6), eyeB, s * 0.15, hy + 0.06, hz + 0.43);
+  }
+  add(new THREE.SphereGeometry(0.07, 6, 6), skin, 0, hy - 0.05, hz + 0.42);
+  if (ch.wear === 'ghutra' || ch.wear === 'shemagh') {
+    add(new THREE.SphereGeometry(0.5, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), cloth, 0, hy + 0.02, hz - 0.02);
+    const drape = add(new THREE.CylinderGeometry(0.5, 0.78, 0.95, 14, 1, true, Math.PI * 0.35, Math.PI * 1.3), cloth, 0, hy - 0.38, hz - 0.05);
+    drape.rotation.y = Math.PI; drape.material = cloth.clone(); drape.material.side = THREE.DoubleSide;
+    const agal = add(new THREE.TorusGeometry(0.42, 0.07, 8, 20), dark, 0, hy + 0.3, hz - 0.02);
+    agal.rotation.x = Math.PI / 2;
   } else if (ch.wear === 'turban') {
     for (let k = 0; k < 3; k++) {
-      const t = new THREE.Mesh(new THREE.TorusGeometry(0.38 - k * 0.08, 0.15, 8, 16), cloth);
-      t.rotation.x = Math.PI / 2; t.position.set(0, 2.25 + k * 0.17, -0.4); body.add(t);
+      const t = add(new THREE.TorusGeometry(0.38 - k * 0.08, 0.15, 10, 18), cloth, 0, hy + 0.25 + k * 0.17, hz);
+      t.rotation.x = Math.PI / 2;
     }
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), trim);
-    gem.position.set(0, 2.32, -0.02); body.add(gem);
+    add(new THREE.OctahedronGeometry(0.12, 0), trim, 0, hy + 0.32, hz + 0.4);
+  } else if (ch.wear === 'fez') {
+    add(new THREE.CylinderGeometry(0.28, 0.36, 0.42, 16), cloth, 0, hy + 0.48, hz);
+    const tas = add(new THREE.CylinderGeometry(0.03, 0.05, 0.35, 5), dark, 0.18, hy + 0.55, hz - 0.2);
+    tas.rotation.z = 0.5;
+    // شارب
+    const ms = add(new THREE.TorusGeometry(0.12, 0.035, 5, 10, Math.PI), dark, 0, hy - 0.14, hz + 0.39);
+    ms.rotation.z = Math.PI;
+  } else if (ch.wear === 'genie') {
+    // المارد: قمة شعر مربوطة وأقراط ذهبية
+    add(new THREE.SphereGeometry(0.16, 8, 6), dark, 0, hy + 0.42, hz - 0.05);
+    const tail = add(new THREE.ConeGeometry(0.12, 0.7, 8), dark, 0, hy + 0.35, hz - 0.45);
+    tail.rotation.x = -2.2;
+    for (const s of [-1, 1]) { const e = add(new THREE.TorusGeometry(0.09, 0.025, 6, 12), trim, s * 0.42, hy - 0.15, hz); e.rotation.y = Math.PI / 2; }
   } else {
-    const hij = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), cloth);
-    hij.position.set(0, 1.98, -0.45); hij.rotation.x = -0.25; body.add(hij);
-    const back = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.62, 0.8, 12, 1, true, Math.PI * 0.4, Math.PI * 1.2), cloth);
-    back.position.set(0, 1.62, -0.48); back.rotation.y = Math.PI; body.add(back);
+    // حجاب (ومع تاج لياسمين)
+    const hij = add(new THREE.SphereGeometry(0.5, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), cloth, 0, hy - 0.02, hz - 0.05);
+    hij.rotation.x = -0.25;
+    const back = add(new THREE.CylinderGeometry(0.48, 0.64, 0.82, 14, 1, true, Math.PI * 0.4, Math.PI * 1.2), cloth, 0, hy - 0.42, hz - 0.08);
+    back.rotation.y = Math.PI; back.material = cloth.clone(); back.material.side = THREE.DoubleSide;
+    if (ch.wear === 'tiara') {
+      const crown = add(new THREE.TorusGeometry(0.4, 0.05, 6, 20), trim, 0, hy + 0.32, hz - 0.05);
+      crown.rotation.x = Math.PI / 2 - 0.3;
+      add(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ color: 0xff4d8d }), 0, hy + 0.42, hz + 0.32);
+    }
   }
   // المقود
-  const sw = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.05, 6, 12), dark);
-  sw.position.set(0, 1.35, 0.35); sw.rotation.x = -0.6; body.add(sw);
+  const sw = add(new THREE.TorusGeometry(0.27, 0.05, 6, 14), dark, 0, 1.38, 0.38);
+  sw.rotation.x = -0.6;
 
   // العجلات
   const wheels = [];
-  const wGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.5, 14);
-  const rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.52, 8);
-  for (const [x, z, s] of [[-1.25, 1.3, 0.85], [1.25, 1.3, 0.85], [-1.3, -1.25, 1], [1.3, -1.25, 1]]) {
+  const tireGeo = new THREE.TorusGeometry(0.4, 0.2, 10, 22);
+  const rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.32, 12);
+  const capGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.36, 8);
+  for (const [x, z, s] of [[-1.3, 2.0, 0.85], [1.3, 2.0, 0.85], [-1.38, -1.25, 1.05], [1.38, -1.25, 1.05]]) {
     const w = new THREE.Group();
-    const tire = new THREE.Mesh(wGeo, dark);
-    tire.rotation.z = Math.PI / 2;
-    const rim = new THREE.Mesh(rimGeo, trim);
-    rim.rotation.z = Math.PI / 2;
-    w.add(tire, rim);
-    w.position.set(x, 0.55 * s, z);
+    const spin = new THREE.Group();
+    const tire = new THREE.Mesh(tireGeo, dark); tire.rotation.y = Math.PI / 2;
+    const rim = new THREE.Mesh(rimGeo, trim); rim.rotation.z = Math.PI / 2;
+    const cap = new THREE.Mesh(capGeo, chrome); cap.rotation.z = Math.PI / 2;
+    spin.add(tire, rim, cap);
+    w.add(spin);
+    w.position.set(x, 0.6 * s, z);
     w.scale.setScalar(s);
     g.add(w);
     wheels.push(w);
@@ -115,21 +196,49 @@ function buildModel(ch) {
   carpet.visible = false;
   g.add(carpet);
 
-  // درع
-  const shield = new THREE.Mesh(new THREE.SphereGeometry(2.6, 20, 14), new THREE.MeshBasicMaterial({ color: 0x5ce1e6, transparent: true, opacity: 0.25, depthWrite: false }));
+  // درع الصحراء
+  const shield = new THREE.Mesh(new THREE.SphereGeometry(2.7, 24, 16), new THREE.MeshBasicMaterial({ color: 0x5ce1e6, transparent: true, opacity: 0.25, depthWrite: false }));
   shield.position.y = 1.1;
   shield.visible = false;
   g.add(shield);
 
-  // ظل
+  // الحرس الدوّار: ثلاثة فوانيس تدور حول السيارة
+  const orbit = new THREE.Group();
+  const orbMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffc85a).multiplyScalar(2.5) });
+  for (let k = 0; k < 3; k++) {
+    const l = new THREE.Mesh(new THREE.OctahedronGeometry(0.45, 0), orbMat);
+    l.scale.y = 1.5;
+    l.position.set(Math.cos(k * 2.09) * 2.8, 1.3, Math.sin(k * 2.09) * 2.8);
+    orbit.add(l);
+  }
+  orbit.visible = false;
+  g.add(orbit);
+
+  // تعويذة العين الزرقاء
+  const amulet = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.1, 8, 20), new THREE.MeshBasicMaterial({ color: 0x1d4ed8 }));
+  const iris = new THREE.Mesh(new THREE.CircleGeometry(0.33, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.15, 12), new THREE.MeshBasicMaterial({ color: 0x5ce1e6, side: THREE.DoubleSide }));
+  pupil.position.z = 0.01;
+  amulet.add(ring, iris, pupil);
+  amulet.position.y = 3.3;
+  amulet.visible = false;
+  g.add(amulet);
+
+  g.traverse((o) => { if (o.isMesh && o.material && !o.material.isMeshBasicMaterial) { o.castShadow = true; } });
+
+  // ظل دائري بسيط (حين تكون الظلال الحقيقية مطفأة)
   const sh = new THREE.Mesh(new THREE.CircleGeometry(1.9, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }));
   sh.rotation.x = -Math.PI / 2;
   sh.scale.set(1, 1.5, 1);
 
-  return { g, body, wheels, carpet, shield, shadow: sh, paint };
+  // جمع المواد لتأثير عباءة الإخفاء
+  const mats = new Set();
+  body.traverse((o) => { if (o.isMesh) mats.add(o.material); });
+  g.children.forEach((c) => { if (wheels.includes(c)) c.traverse((o) => { if (o.isMesh) mats.add(o.material); }); });
+  return { g, body, wheels, carpet, shield, orbit, amulet, shadow: sh, paint, mats: [...mats] };
 }
 
-let nameCanvasCache = new Map();
 function nameSprite(text, color) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64;
   const g = c.getContext('2d');
@@ -152,13 +261,15 @@ export class Kart {
     const ch = CHARS[this.char];
     this.color = ch.color;
     const m = buildModel(ch);
-    Object.assign(this, { mesh: m.g, body: m.body, wheels: m.wheels, carpetMesh: m.carpet, shieldMesh: m.shield, shadow: m.shadow });
+    Object.assign(this, { mesh: m.g, body: m.body, wheels: m.wheels, carpetMesh: m.carpet, shieldMesh: m.shield, orbitMesh: m.orbit, amuletMesh: m.amulet, shadow: m.shadow, paint: m.paint, mats: m.mats });
+    this.st = ch.st;
     scene.add(this.mesh); scene.add(this.shadow);
     if (!owned || bot) { this.label = nameSprite(name, 0xffffff); this.mesh.add(this.label); }
     this.pos = new THREE.Vector3();
     this.heading = 0; this.speed = 0; this.y = 0; this.vy = 0;
     this.drifting = false; this.driftDir = 0; this.driftT = 0; this.driftLvl = 0;
     this.boostT = 0; this.spinT = 0; this.spinAng = 0; this.shieldT = 0; this.genieT = 0; this.carpetT = 0; this.stormT = 0;
+    this.cloakT = 0; this.amuletT = 0; this.orbit = 0; this.cloakVis = 1;
     this.item = null; this.itemCount = 0; this.rolling = 0;
     this.idx = 0; this.prog = 0; this.lastLat = 0; this.offroad = false;
     this.finished = false; this.finishTime = 0;
@@ -196,6 +307,8 @@ export class Kart {
     if (this.stormT > 0) f |= F.STORM;
     if (this.finished) f |= F.FIN;
     if (this.out) f |= F.OUT;
+    if (this.cloakT > 0) f |= F.CLOAK;
+    if (this.amuletT > 0) f |= F.AMULET;
     return f;
   }
 
@@ -203,8 +316,9 @@ export class Kart {
 
   // يرجع true إذا أصابت الضربة السيارة فعلاً
   hit(kind) {
-    if (this.genieT > 0) return false;
+    if (this.genieT > 0 || this.cloakT > 0) return false;
     if (this.shieldT > 0) { this.shieldT = 0; return false; }
+    if (this.orbit > 0) { this.orbit--; return false; }
     this.spinT = kind === 'oil' ? 1.0 : 1.4;
     if (kind !== 'oil') this.vy = 8;
     this.drifting = false; this.driftT = 0; this.boostT = 0; this.carpetT = 0;
@@ -214,11 +328,14 @@ export class Kart {
   update(dt, inp, track, fx) {
     const ev = {};
     // العدادات
-    for (const k of ['boostT', 'shieldT', 'genieT', 'carpetT', 'stormT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
+    for (const k of ['boostT', 'shieldT', 'genieT', 'carpetT', 'stormT', 'cloakT', 'amuletT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
 
     this.offroad = track.surface(this.pos, this.idx).offroad;
 
-    let max = MAX_SPEED * this.botSpeed;
+    // صفات المتسابق: السرعة والتسارع والتحكم
+    const [stS, stA, stT] = this.st;
+    const acc = ACC * (1 + (stA - 3) * 0.07), turn = 1 + (stT - 3) * 0.06;
+    let max = MAX_SPEED * this.botSpeed * (1 + (stS - 3) * 0.022);
     if (this.offroad && this.genieT <= 0 && this.carpetT <= 0) max *= 0.55;
     if (this.boostT > 0) max *= 1.38;
     if (this.genieT > 0) max *= 1.22;
@@ -234,7 +351,7 @@ export class Kart {
       // التسارع والكبح
       if (this.boostT > 0 && this.speed < max) this.speed = Math.min(max, this.speed + 90 * dt);
       if (inp.up) {
-        if (this.speed < max) this.speed = Math.min(max, this.speed + ACC * dt * (this.speed < 0 ? 2 : 1));
+        if (this.speed < max) this.speed = Math.min(max, this.speed + acc * dt * (this.speed < 0 ? 2 : 1));
       } else if (inp.down) {
         if (this.speed > 0) this.speed = Math.max(0, this.speed - BRAKE * dt);
         else this.speed = Math.max(REV, this.speed - ACC * 0.6 * dt);
@@ -252,7 +369,7 @@ export class Kart {
       const sf = Math.min(1, Math.abs(this.speed) / 14) * Math.sign(this.speed || 1);
       if (this.drifting) {
         const into = inp.steer * this.driftDir; // -1..1
-        this.heading += this.driftDir * (1.25 + 0.75 * into) * sf * dt;
+        this.heading += this.driftDir * (1.25 + 0.75 * into) * turn * sf * dt;
         this.driftT += dt * (1 + Math.max(0, into) * 0.5);
         const lvl = this.driftT > 2.6 ? 3 : this.driftT > 1.6 ? 2 : this.driftT > 0.7 ? 1 : 0;
         if (lvl > this.driftLvl) { this.driftLvl = lvl; ev.driftLvl = lvl; }
@@ -262,7 +379,7 @@ export class Kart {
         }
       } else {
         const hiSpeed = 1 - 0.3 * Math.min(1, Math.abs(this.speed) / MAX_SPEED);
-        this.heading += inp.steer * 2.1 * hiSpeed * sf * dt;
+        this.heading += inp.steer * 2.1 * turn * hiSpeed * sf * dt;
       }
     }
 
@@ -331,6 +448,8 @@ export class Kart {
     this.genieT = fl & F.GENIE ? 1 : 0;
     this.carpetT = fl & F.CARPET ? 1 : 0;
     this.stormT = fl & F.STORM ? 1 : 0;
+    this.cloakT = fl & F.CLOAK ? 1 : 0;
+    this.amuletT = fl & F.AMULET ? 1 : 0;
     if (fl & F.SPIN) this.spinAng += dt * 14; else this.spinAng = 0;
     if (fx) {
       const f = this.fwd;
@@ -350,7 +469,7 @@ export class Kart {
     this.body.rotation.x = this.spinT > 0 && this.y > 0 ? -this.y * 0.25 : 0;
     this.wheelRot += this.speed * dt / 0.55;
     this.wheels.forEach((w, i) => {
-      w.children[0].rotation.x = this.wheelRot; w.children[1].rotation.x = this.wheelRot;
+      w.children[0].rotation.x = this.wheelRot;
       if (i < 2) w.rotation.y = steer * 0.35;
     });
     this.carpetMesh.visible = this.carpetT > 0;
@@ -362,9 +481,26 @@ export class Kart {
     }
     this.shieldMesh.visible = this.shieldT > 0;
     this.shieldMesh.material.opacity = 0.22 + Math.sin(performance.now() / 120) * 0.06;
-    if (this.genieT > 0) {
-      this.body.children[0].material.emissive.setHex(Math.sin(performance.now() / 70) > 0 ? 0x7a5a00 : 0x2a0a4a);
-    } else this.body.children[0].material.emissive.setHex(0x000000);
+    const now = performance.now();
+    if (this.genieT > 0) this.paint.emissive.setHex(Math.sin(now / 70) > 0 ? 0x7a5a00 : 0x2a0a4a);
+    else this.paint.emissive.setHex(0x000000);
+    // الحرس الدوّار
+    this.orbitMesh.visible = this.orbit > 0;
+    if (this.orbit > 0) {
+      this.orbitMesh.rotation.y = now / 300;
+      this.orbitMesh.children.forEach((c, i) => { c.visible = i < this.orbit; c.rotation.y = now / 200; });
+    }
+    // تعويذة العين
+    this.amuletMesh.visible = this.amuletT > 0;
+    if (this.amuletT > 0) { this.amuletMesh.rotation.y = now / 400; this.amuletMesh.position.y = 3.3 + Math.sin(now / 250) * 0.15; }
+    // عباءة الإخفاء: شفافية (أشد عند الخصوم)
+    const vis = this.cloakT > 0 ? (this.owned && !this.bot ? 0.35 : 0.12) : 1;
+    if (vis !== this.cloakVis) {
+      this.cloakVis = vis;
+      for (const m of this.mats) { m.transparent = vis < 1; m.opacity = vis; m.depthWrite = vis === 1; m.needsUpdate = true; }
+      if (this.label) this.label.visible = vis === 1;
+    }
+    this.shadow.visible = !KART_GFX.realShadows && this.mesh.visible && vis === 1;
     this.shadow.position.set(this.pos.x, 0.1, this.pos.z);
     this.shadow.rotation.z = this.heading;
     this.shadow.material.opacity = 0.3 / (1 + (this.y + lift) * 0.5);

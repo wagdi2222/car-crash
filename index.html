@@ -28,6 +28,7 @@
       </label>
       <div class="label">اختر متسابقك</div>
       <div id="chars" class="chars"></div>
+      <div id="char-info" class="char-info"></div>
       <div id="ctl-box" class="ctl-box">
         <div class="label">طريقة التحكم باللمس</div>
         <div id="ctl" class="ctl">
@@ -43,6 +44,8 @@
         <div>تمت دعوتك إلى الغرفة <b id="join-code"></b></div>
         <button id="btn-join" class="btn big gold">انضم إلى السباق 🏁</button>
       </div>
+      <div class="label">جودة الرسوم</div>
+      <div id="quality" class="ctl q3"></div>
       <div class="btns">
         <button id="btn-host" class="btn big gold">العب مع أصدقائك 🌐</button>
         <button id="btn-solo" class="btn big">العب ضد الآلي 🤖</button>
@@ -119,8 +122,18 @@
           <li>🛢️ <b>فخ الزيت</b>: بقعة خلفك تدير من يمر عليها</li>
           <li>🧞 <b>بساط الريح</b>: طيران سريع حتى فوق الرمال</li>
           <li>🌪️ <b>العاصفة الرملية</b>: تبطئ وتعمي كل من هو أمامك</li>
-          <li>🛡️ <b>درع الصحراء</b>: يصدّ ضربة واحدة</li>
           <li>🪔 <b>مصباح علاء الدين</b>: المارد يجعلك سريعاً لا تُقهر ويطيح بمن تلمسه (للمتأخرين!)</li>
+          <li>☄️ <b>الشهاب</b>: يطير فوق الجميع ويسقط على المتصدر</li>
+          <li>🗡️ <b>الخنجر الطائر</b>: ينطلق للأمام ثم يعود إليك، ويصيب من في طريقه ذهاباً وإياباً</li>
+          <li>🦗 <b>سرب الجراد</b>: يهاجم كل من حولك دفعة واحدة</li>
+          <li>🎁 <b>الصندوق المزيف</b>: فخ يشبه صندوق ؟ تتركه خلفك (لونه أميل إلى الأحمر قليلاً)</li>
+        </ul>
+        <h3>طرق الحماية</h3>
+        <ul class="items">
+          <li>🛡️ <b>درع الصحراء</b>: يصدّ ضربة واحدة</li>
+          <li>🧿 <b>العين الزرقاء</b>: تردّ أول ضربة صاروخاً على من أطلقها</li>
+          <li>🏮 <b>الحرس الدوّار</b>: ثلاثة فوانيس تدور حولك وتصدّ ثلاث ضربات</li>
+          <li>👻 <b>عباءة الإخفاء</b>: تصبح شبحاً لخمس ثوانٍ فتمرّ الأسلحة من خلالك</li>
         </ul>
         <h3>وضع المعركة ⚔️</h3>
         <p>ساحة مغلقة بلا خط نهاية. لكل متسابق ثلاث أرواح ❤️، وكل إصابة بسلاح أو بالمارد تُفقدك روحاً. اجمع الأسلحة من صناديق ؟ وطارد خصومك، وآخر من يبقى يفوز. إذا انتهى الوقت (٣ دقائق) يفوز صاحب الأرواح الأكثر ثم الإصابات الأكثر.</p>
@@ -140,7 +153,7 @@
         <div id="lap" class="lap"></div>
         <div id="time" class="time"></div>
       </div>
-      <div id="item" class="item"></div>
+      <div class="itemwrap"><div id="item" class="item"></div><div id="prot" class="prot"></div></div>
     </div>
     <ol id="standings" class="standings"></ol>
     <canvas id="minimap" width="170" height="170"></canvas>

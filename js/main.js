@@ -4,9 +4,13 @@ import { Track } from './track.js';
 import { Arena } from './arena.js';
 import { COURSES, courseById } from './courses.js';
 import { disposeGroup } from './scenery.js';
-import { Kart, CHARS, F } from './kart.js';
+import { Kart, CHARS, F, KART_GFX } from './kart.js';
+import { EffectComposer } from '../lib/post/EffectComposer.js';
+import { RenderPass } from '../lib/post/RenderPass.js';
+import { UnrealBloomPass } from '../lib/post/UnrealBloomPass.js';
+import { OutputPass } from '../lib/post/OutputPass.js';
 import { FX } from './fx.js';
-import { Boxes, Projectiles, ITEMS, ITEM_KEYS, rollItem } from './items.js';
+import { Boxes, Projectiles, ITEMS, ITEM_KEYS, DEFENSE, rollItem } from './items.js';
 import { Bot } from './ai.js';
 import { Input, CONTROL_TIPS } from './input.js';
 import { Audio, localStorageGet, localStorageSet } from './audio.js';
@@ -28,10 +32,28 @@ const cleanName = (s) => String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim(
 
 // ---------- المشهد ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: $('game'), powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(72, 1, 0.5, 3000);
+
+// المعالجة اللاحقة: توهّج الأضواء والانفجارات
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.45, 0.92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// إعدادات الجودة
+const QUALITY = {
+  high: { label: 'عالية', ratio: 2, shadows: 2048, bloom: true },
+  medium: { label: 'متوسطة', ratio: 1.5, shadows: 1024, bloom: false },
+  low: { label: 'منخفضة', ratio: 1, shadows: 0, bloom: false },
+};
+const pmrem = new THREE.PMREMGenerator(renderer);
+let envRT = null;
 
 // الحلبة الحالية (سباق أو ساحة معركة) تُبنى عند اختيارها
 let track = null, boxes = null;
@@ -41,6 +63,7 @@ const projs = new Projectiles(scene, null, fx);
 function loadCourse(id) {
   const c = courseById(id);
   if (track && track.course.id === c.id) return;
+  if (envRT) { envRT.dispose(); envRT = null; }
   if (track) {
     scene.remove(track.group);
     disposeGroup(track.group);
@@ -49,7 +72,51 @@ function loadCourse(id) {
   track = c.kind === 'arena' ? new Arena(scene, c) : new Track(scene, c);
   boxes = new Boxes(scene, track.boxSpots);
   projs.track = track;
+  // الظلال: كل جسم له ارتفاع يُلقي ظلاً، وكل شيء يستقبله
+  track.group.traverse((o) => {
+    if (!o.isMesh || o.material.isShaderMaterial) return;
+    o.receiveShadow = true;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    const bb = o.geometry.boundingBox;
+    const tall = (bb.max.y - bb.min.y) * o.scale.y > 0.6;
+    const farDune = o.parent === track.group && o.geometry.type === 'SphereGeometry';
+    o.castShadow = tall && !farDune;
+  });
+  // انعكاسات السماء على طلاء السيارات
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(track.env.sky.geometry, track.env.sky.material));
+  envRT = pmrem.fromScene(envScene, 0, 1, 3000);
+  scene.environment = envRT.texture;
+  applyQuality();
   buildMinimap();
+}
+
+function applyQuality() {
+  const q = QUALITY[S.quality] || QUALITY.medium;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q.ratio));
+  const shadows = q.shadows > 0;
+  if (renderer.shadowMap.enabled !== shadows) {
+    renderer.shadowMap.enabled = shadows;
+    scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  }
+  KART_GFX.realShadows = shadows;
+  if (track) {
+    const sun = track.env.sun;
+    sun.castShadow = shadows;
+    if (shadows && sun.shadow.mapSize.x !== q.shadows) {
+      sun.shadow.mapSize.set(q.shadows, q.shadows);
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    }
+  }
+  resize();
+}
+
+// الشمس تتبع مركز الحدث حتى تبقى الظلال حادة حول اللاعب
+function followSun(center) {
+  if (!track || !renderer.shadowMap.enabled) return;
+  const sun = track.env.sun;
+  sun.target.position.set(center.x, 0, center.z);
+  sun.position.copy(sun.target.position).addScaledVector(sun.userData.dir, 220);
 }
 const isBattle = () => track && track.kind === 'arena';
 const input = new Input();
@@ -59,12 +126,13 @@ const net = new Net();
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  fx.setScale(h * Math.min(devicePixelRatio, 1.5));
+  fx.setScale(h * renderer.getPixelRatio());
 }
 addEventListener('resize', resize);
-resize();
 
 // ---------- الحالة ----------
 const S = {
@@ -76,6 +144,7 @@ const S = {
   lobby: [],
   botCount: 5,
   courseId: courseById(localStorageGet('rimal-course') || 'desert').id,
+  quality: QUALITY[localStorageGet('rimal-quality')] ? localStorageGet('rimal-quality') : (input.isTouch ? 'medium' : 'high'),
   battleT: 0, ended: false,
   racing: false, // هل يجري سباق في الغرفة (للمضيف)
   karts: new Map(),
@@ -239,6 +308,16 @@ function updateRace(dt) {
     if (!k.owned) continue;
     const p = projs.collide(k);
     if (!p) continue;
+    if (k.amuletT > 0 && p.owner !== k.id) {
+      // العين الزرقاء: تردّ الضربة صاروخاً على من أطلقها
+      k.amuletT = 0;
+      projs.remove(p.id, true);
+      rsend({ t: 'ev', k: 'hit', pid: p.id, v: k.id, by: p.owner, real: false });
+      const att = S.karts.get(p.owner);
+      if (att && !att.out && att !== k) spawnProj({ type: 'missile', owner: k.id, x: k.pos.x, z: k.pos.z, h: Math.atan2(att.pos.x - k.pos.x, att.pos.z - k.pos.z), target: att.id });
+      if (k === me) { showMsg('🧿 ارتدّت الضربة!', 'item'); audio.play('shield'); }
+      continue;
+    }
     const real = k.hit(p.type);
     projs.remove(p.id, true);
     rsend({ t: 'ev', k: 'hit', pid: p.id, v: k.id, by: p.owner, real });
@@ -254,7 +333,7 @@ function updateRace(dt) {
       const list = [];
       for (const k of S.karts.values()) {
         if (!k.owned) continue;
-        list.push([k.id, +k.pos.x.toFixed(2), +k.y.toFixed(2), +k.pos.z.toFixed(2), +k.heading.toFixed(3), +k.speed.toFixed(1), k.flagsNow, k.prog, k.lives, k.hits]);
+        list.push([k.id, +k.pos.x.toFixed(2), +k.y.toFixed(2), +k.pos.z.toFixed(2), +k.heading.toFixed(3), +k.speed.toFixed(1), k.flagsNow, k.prog, k.lives, k.hits, k.orbit]);
       }
       net.send({ t: 's', k: list });
     }
@@ -270,9 +349,13 @@ function updateRace(dt) {
   for (const k of S.karts.values()) {
     const d = Math.hypot(k.pos.x - camera.position.x, k.pos.z - camera.position.z);
     if (k.label) k.label.visible = d > 16;
-    k.mesh.visible = k.shadow.visible = !k.out && (k === me || S.demo || d > 6);
+    // سيارة بين الكاميرا وسيارتك تُخفى حتى لا تحجب الرؤية
+    const behindMe = me && k !== me && ((k.pos.x - me.pos.x) * Math.sin(me.heading) + (k.pos.z - me.pos.z) * Math.cos(me.heading)) < -1;
+    k.mesh.visible = !k.out && (k === me || S.demo || d > (behindMe ? 9 : 6));
+    if (!k.mesh.visible) k.shadow.visible = false;
   }
   if (me && me.stormT > 0) fx.storm(camera.position);
+  followSun(camLook);
 }
 
 function onMyEvents(ev) {
@@ -401,6 +484,41 @@ function useItem(k, back, rank) {
       k.genieT = 6; k.boost(1);
       if (isMe) { audio.play('genie'); showMsg('شُبّيك لُبّيك!', 'item'); }
       break;
+    case 'meteor': {
+      // يستهدف المتصدر (أو الثاني إن كنت أنت في المقدمة)
+      const tgt = rank.find((o) => o !== k && !o.out);
+      spawnProj({ type: 'meteor', owner: k.id, x: k.pos.x, z: k.pos.z, h: k.heading, target: tgt ? tgt.id : null });
+      if (isMe) { audio.play('fire'); showMsg('☄️ الشهاب في طريقه!', 'item'); }
+      if (tgt === S.me && !isMe) showMsg('☄️ شهاب قادم نحوك!', 'hit');
+      break;
+    }
+    case 'dagger': {
+      const s = back ? -3.5 : 3.5;
+      spawnProj({ type: 'dagger', owner: k.id, x: k.pos.x + f.x * s, z: k.pos.z + f.z * s, h: k.heading + (back ? Math.PI : 0) });
+      if (isMe) audio.play('fire');
+      break;
+    }
+    case 'fake':
+      spawnProj({ type: 'fake', owner: k.id, x: k.pos.x - f.x * 4.5, z: k.pos.z - f.z * 4.5, h: 0 });
+      if (isMe) audio.play('hop');
+      break;
+    case 'locust':
+      applySwarm(k.id, k.pos.x, k.pos.z);
+      rsend({ t: 'ev', k: 'swarm', from: k.id, x: +k.pos.x.toFixed(1), z: +k.pos.z.toFixed(1) });
+      if (isMe) showMsg('🦗 سرب الجراد!', 'item');
+      break;
+    case 'amulet':
+      k.amuletT = 15;
+      if (isMe) { audio.play('shield'); showMsg('🧿 العين الزرقاء تحرسك', 'item'); }
+      break;
+    case 'cloak':
+      k.cloakT = 5;
+      if (isMe) { audio.play('genie'); showMsg('👻 اختفيت!', 'item'); }
+      break;
+    case 'orbit':
+      k.orbit = 3;
+      if (isMe) audio.play('shield');
+      break;
     case 'storm':
       applyStorm(k.id, k.prog);
       rsend({ t: 'ev', k: 'storm', from: k.id, prog: k.prog });
@@ -418,6 +536,18 @@ function applyStorm(from, prog) {
     if (k.shieldT > 0) { k.shieldT = 0; continue; }
     k.stormT = 3.5;
     if (k === S.me) showMsg(`عاصفة من ${src ? src.name : '؟'}!`, 'hit');
+  }
+}
+
+// سرب الجراد: يصيب كل من حول صاحبه
+function applySwarm(from, x, z) {
+  fx.swarm(new THREE.Vector3(x, 1, z));
+  if (S.me && !S.demo && Math.hypot(S.me.pos.x - x, S.me.pos.z - z) < 80) audio.play('storm');
+  for (const k of S.karts.values()) {
+    if (!k.owned || k.id === from || k.out) continue;
+    if (Math.hypot(k.pos.x - x, k.pos.z - z) > 26) continue;
+    if (k.hit('locust')) { onHitLocal(k, from); rsend({ t: 'ev', k: 'hit', v: k.id, by: from, real: true }); }
+    else if (k === S.me) audio.play('shield');
   }
 }
 
@@ -448,9 +578,30 @@ function chaseCam(k, dt) {
   if (!k) return;
   const f = k.fwd;
   const portrait = camera.aspect < 0.9;
-  const want = k.pos.clone().addScaledVector(f, portrait ? -10.5 : -8.8).setY((portrait ? 5.2 : 3.9) + k.y * 0.5);
-  const a = S.started ? 1 - Math.exp(-7 * dt) : 1;
-  camera.position.lerp(want, a);
+  const dist = portrait ? 10.5 : 8.8, high = portrait ? 5.2 : 3.9;
+  // لقطة افتتاحية: الكاميرا تدور من أمام السيارة إلى خلفها أثناء العد التنازلي
+  if (!S.started && S.countdown > 0.8) {
+    const t = Math.min(1, Math.max(0, (3.9 - S.countdown) / 3.1));
+    const e = t * t * (3 - 2 * t);
+    const ang = k.heading + Math.PI * (1 - e) + 0.6 * Math.sin(e * Math.PI);
+    const r = 13 - (13 - dist) * e;
+    camera.position.set(k.pos.x - Math.sin(ang) * r, 7 - (7 - high) * e, k.pos.z - Math.cos(ang) * r);
+    camLook.copy(k.pos).setY(1.4);
+    camera.lookAt(camLook);
+    camera.fov = 60 + 12 * e; camera.updateProjectionMatrix();
+    return;
+  }
+  // لقطة الفوز: دوران بطيء حول السيارة بعد خط النهاية
+  if (k.finished || (S.ended && ranking()[0] === k)) {
+    const ang = performance.now() / 2600;
+    const want = new THREE.Vector3(k.pos.x + Math.sin(ang) * 10, 4.5, k.pos.z + Math.cos(ang) * 10);
+    camera.position.lerp(want, 1 - Math.exp(-2 * dt));
+    camLook.lerp(k.pos.clone().setY(1.3), 1 - Math.exp(-6 * dt));
+    camera.lookAt(camLook);
+    return;
+  }
+  const want = k.pos.clone().addScaledVector(f, -dist).setY(high + k.y * 0.5);
+  camera.position.lerp(want, 1 - Math.exp(-7 * dt));
   camLook.copy(k.pos).addScaledVector(f, 5).setY(1.6 + k.y * 0.5);
   if (S.camShake > 0) {
     S.camShake -= dt;
@@ -539,7 +690,7 @@ function drawMinimap() {
   }
 }
 
-let rouletteT = 0, standT = 0, itemKey = null;
+let rouletteT = 0, standT = 0, itemKey = null, protKey = '';
 function updateHUD(rank, dt) {
   const me = S.me;
   if (!me) return;
@@ -565,7 +716,7 @@ function updateHUD(rank, dt) {
       box.className = 'item rolling';
     } else if (key) {
       box.innerHTML = `<span class="ico">${ITEMS[key].icon}</span><span class="nm">${ITEMS[key].name}</span>`;
-      box.className = 'item ready';
+      box.className = 'item ready' + (DEFENSE.has(key) ? ' def' : '');
     } else { box.innerHTML = ''; box.className = 'item'; }
   }
   // شحنة الانجراف
@@ -574,6 +725,9 @@ function updateHUD(rank, dt) {
     dl.className = 'drift on lvl' + me.driftLvl;
     dl.style.setProperty('--p', Math.min(1, me.driftT / 2.6));
   } else dl.className = 'drift';
+  // الحمايات الفعّالة
+  const prot = (me.shieldT > 0 ? '🛡️' : '') + (me.amuletT > 0 ? '🧿' : '') + '🏮'.repeat(me.orbit) + (me.cloakT > 0 ? '👻' : '') + (me.genieT > 0 ? '🧞' : '');
+  if (prot !== protKey) { protKey = prot; $('prot').textContent = prot; }
   $('wrong').classList.toggle('show', me.wrongT > 1.2 && !me.finished);
   $('storm').classList.toggle('show', me.stormT > 0);
   $('boostfx').classList.toggle('show', me.boostT > 0);
@@ -619,15 +773,34 @@ function showScreen(id) {
 }
 
 // ---------- القائمة ----------
+const AVATAR = { ghutra: '🧔', hijab: '🧕', turban: '👳', fez: '👲', tiara: '👸', genie: '🧞', shemagh: '🦅' };
 function buildCharPicker() {
   const wrap = $('chars');
-  wrap.innerHTML = CHARS.map((c, i) => `<button class="char ${i === S.char ? 'sel' : ''}" data-i="${i}" style="--c:#${new THREE.Color(c.color).getHexString()};--t:#${new THREE.Color(c.trim).getHexString()}">
-    <span class="av">${c.wear === 'hijab' ? '🧕' : c.wear === 'turban' ? '👳' : '🧔'}</span><b>${c.name}</b><small>${c.desc}</small></button>`).join('');
+  wrap.innerHTML = CHARS.map((c, i) => `<button class="char ${i === S.char ? 'sel' : ''}" data-i="${i}" style="--c:#${new THREE.Color(c.color).getHexString()}">
+    <span class="av">${AVATAR[c.wear]}</span><b>${c.name}</b></button>`).join('');
+  const info = () => {
+    const c = CHARS[S.char];
+    const bar = (label, v) => `<span class="stat"><small>${label}</small><span class="bar"><i style="width:${v * 20}%"></i></span></span>`;
+    $('char-info').innerHTML = `<b>${c.name}</b> <span>${c.desc}</span><div class="stats">${bar('السرعة', c.st[0])}${bar('التسارع', c.st[1])}${bar('التحكم', c.st[2])}</div>`;
+  };
   wrap.querySelectorAll('.char').forEach((b) => b.addEventListener('click', () => {
     S.char = +b.dataset.i;
     localStorageSet('rimal-char', S.char);
     wrap.querySelectorAll('.char').forEach((x) => x.classList.toggle('sel', x === b));
+    info();
     audio.init(); audio.play('pickup');
+  }));
+  info();
+}
+
+function buildQualityPicker() {
+  const el = $('quality');
+  el.innerHTML = Object.entries(QUALITY).map(([k, q]) => `<button class="ctl-opt ${k === S.quality ? 'sel' : ''}" data-q="${k}">${q.label}</button>`).join('');
+  el.querySelectorAll('.ctl-opt').forEach((b) => b.addEventListener('click', () => {
+    S.quality = b.dataset.q;
+    localStorageSet('rimal-quality', S.quality);
+    applyQuality();
+    buildQualityPicker();
   }));
 }
 
@@ -651,6 +824,7 @@ function initMenu() {
   showCtl();
   $('name').value = S.name === 'متسابق' ? '' : S.name;
   buildCharPicker();
+  buildQualityPicker();
   if (roomParam) {
     $('join-box').classList.remove('hidden');
     $('join-code').textContent = roomParam;
@@ -888,7 +1062,7 @@ net.onMessage = (m) => {
         k.target = { x: e[1], y: e[2], z: e[3], h: e[4], sp: e[5] };
         k.flags = e[6];
         k.prog = e[7];
-        if (e[8] !== undefined) { k.lives = e[8]; k.hits = e[9]; }
+        if (e[8] !== undefined) { k.lives = e[8]; k.hits = e[9]; k.orbit = e[10] | 0; }
         if (e[6] & F.OUT && !k.out) { k.out = true; k.outTime = k.outTime || S.raceT; }
         if (e[6] & F.FIN && !k.finished) { k.finished = true; k.finishTime = k.finishTime || S.raceT; }
       }
@@ -909,6 +1083,7 @@ net.onMessage = (m) => {
         if (k && !k.out) { k.out = true; k.outTime = m.time; fx.explode(k.pos.clone().setY(1), 0xff5a1a); soundAt(k.pos, 'boom'); }
       } else if (m.k === 'box') boxes.take(m.i);
       else if (m.k === 'storm') applyStorm(m.from, m.prog);
+      else if (m.k === 'swarm') applySwarm(m.from, +m.x, +m.z);
       else if (m.k === 'fin') {
         const k = S.karts.get(m.id);
         if (k) { k.finished = true; k.finishTime = m.time; }
@@ -927,7 +1102,7 @@ function frame(now) {
   updateRace(dt);
   boxes.update(dt);
   fx.update(dt);
-  renderer.render(scene, camera);
+  if (QUALITY[S.quality].bloom) composer.render(); else renderer.render(scene, camera);
 }
 
 initMenu();

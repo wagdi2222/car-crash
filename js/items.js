@@ -9,7 +9,16 @@ export const ITEMS = {
   storm: { name: 'العاصفة الرملية', icon: '🌪️', tip: 'تُبطئ وتُعمي كل من أمامك' },
   shield: { name: 'درع الصحراء', icon: '🛡️', tip: 'يصدّ ضربة واحدة' },
   lamp: { name: 'مصباح علاء الدين', icon: '🪔', tip: 'المارد يجعلك لا تُقهر!' },
+  meteor: { name: 'الشهاب', icon: '☄️', tip: 'يطير فوق الجميع ويسقط على المتصدر' },
+  dagger: { name: 'الخنجر الطائر', icon: '🗡️', tip: 'ينطلق للأمام ثم يعود إليك ويصيب من في طريقه' },
+  locust: { name: 'سرب الجراد', icon: '🦗', tip: 'يهاجم كل من حولك' },
+  fake: { name: 'الصندوق المزيف', icon: '🎁', tip: 'فخ يشبه صندوق ؟ تتركه خلفك' },
+  amulet: { name: 'العين الزرقاء', icon: '🧿', tip: 'تردّ أول ضربة إلى من أطلقها' },
+  cloak: { name: 'عباءة الإخفاء', icon: '👻', tip: 'تختفي فتمرّ الأسلحة من خلالك' },
+  orbit: { name: 'الحرس الدوّار', icon: '🏮', tip: 'ثلاثة فوانيس تحميك من ٣ ضربات' },
 };
+// الأدوات الدفاعية (للعرض في الواجهة)
+export const DEFENSE = new Set(['shield', 'amulet', 'cloak', 'orbit']);
 export const ITEM_KEYS = Object.keys(ITEMS);
 
 // اختيار سلاح حسب المركز: المتأخرون يحصلون على أسلحة أقوى
@@ -23,6 +32,13 @@ export function rollItem(rank, total) {
     carpet: 1 + 3 * f,
     storm: f > 0.3 ? 2.2 * f : 0,
     lamp: f > 0.6 ? 2.5 * f : 0,
+    meteor: f > 0.4 ? 2 * f : 0,
+    dagger: 2,
+    locust: 1 + 1.5 * f,
+    fake: 2.5 - 1.5 * f,
+    amulet: 1.5,
+    cloak: 0.5 + 1.5 * f,
+    orbit: 1 + f,
   };
   let sum = 0;
   for (const k in w) sum += w[k];
@@ -31,11 +47,12 @@ export function rollItem(rank, total) {
   return 'missile';
 }
 
-function boxTexture() {
+function boxTexture(fake) {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d');
   const grd = g.createLinearGradient(0, 0, 128, 128);
-  grd.addColorStop(0, '#f2c14e'); grd.addColorStop(1, '#c97d10');
+  // الصندوق المزيف يميل قليلاً إلى الأحمر: يلاحظه المنتبه فقط
+  grd.addColorStop(0, fake ? '#f2a14e' : '#f2c14e'); grd.addColorStop(1, fake ? '#c9501a' : '#c97d10');
   g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
   g.strokeStyle = '#1aa39a'; g.lineWidth = 10; g.strokeRect(5, 5, 118, 118);
   g.fillStyle = '#fff8e0';
@@ -106,6 +123,25 @@ function projMesh(type) {
     band.rotation.x = Math.PI / 2; g.add(band);
     const fire = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 8), new THREE.MeshBasicMaterial({ color: 0xff7a1a }));
     fire.position.y = 1.6; g.add(fire);
+  } else if (type === 'meteor') {
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1, 0), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(1.5, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.45, depthWrite: false }));
+    g.add(rock, core);
+  } else if (type === 'dagger') {
+    const blade = new THREE.Group();
+    const steel = new THREE.MeshStandardMaterial({ color: 0xe8e8f0, metalness: 1, roughness: 0.2 });
+    for (const s of [-1, 1]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.3), steel);
+      b.position.x = s * 0.75; b.rotation.y = s * 0.35; blade.add(b);
+    }
+    const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0xf2c14e, metalness: 0.8, roughness: 0.3 }));
+    blade.add(hilt);
+    blade.position.y = 0.2;
+    g.add(blade);
+  } else if (type === 'fake') {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshLambertMaterial({ map: boxTexture(true), emissive: 0x3a1400, transparent: true, opacity: 0.92 }));
+    m.position.y = 0.4; m.rotation.set(0.5, 0, 0.5);
+    g.add(m);
   } else if (type === 'oil') {
     if (!geoCache.oil) geoCache.oil = new THREE.CircleGeometry(2.4, 20);
     const s = new THREE.Mesh(geoCache.oil, new THREE.MeshBasicMaterial({ color: 0x140c05, transparent: true, opacity: 0.85 }));
@@ -127,7 +163,7 @@ export class Projectiles {
   spawn(d) {
     if (this.list.has(d.id)) return;
     const m = projMesh(d.type);
-    const p = { ...d, pos: new THREE.Vector3(d.x, d.type === 'oil' ? 0 : 1, d.z), age: 0, idx: -1, mesh: m };
+    const p = { ...d, pos: new THREE.Vector3(d.x, d.type === 'oil' ? 0 : d.type === 'meteor' ? 14 : 1, d.z), age: 0, idx: -1, mesh: m };
     m.position.copy(p.pos);
     this.scene.add(m);
     this.list.set(d.id, p);
@@ -179,8 +215,48 @@ export class Projectiles {
         if (p.age > 5) gone.push(p.id);
       } else if (p.type === 'oil') {
         if (p.age > 45) gone.push(p.id);
+      } else if (p.type === 'fake') {
+        p.mesh.children[0].rotation.y += dt * 1.5;
+        p.pos.y = 1 + Math.sin(performance.now() / 400) * 0.3;
+        if (p.age > 60) gone.push(p.id);
+      } else if (p.type === 'meteor') {
+        // يحلّق عالياً ويلاحق الهدف بقوة، ثم يهبط عليه
+        const t = p.target && karts.get(p.target);
+        let dist = 60;
+        if (t && !t.out) {
+          const want = Math.atan2(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
+          let d = want - p.h; d = Math.atan2(Math.sin(d), Math.cos(d));
+          p.h += Math.max(-5 * dt, Math.min(5 * dt, d));
+          dist = Math.hypot(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
+        }
+        const sp = 92;
+        p.pos.x += Math.sin(p.h) * sp * dt; p.pos.z += Math.cos(p.h) * sp * dt;
+        p.pos.y = 1 + Math.min(14, dist * 0.3);
+        p.mesh.rotation.x += dt * 6;
+        this.fx.trail(p.pos.clone(), 0xff7a1a);
+        this.fx.trail(p.pos.clone(), 0xffd166);
+        if (p.age > 9) gone.push(p.id);
+      } else if (p.type === 'dagger') {
+        // ينطلق ثم يعود إلى صاحبه
+        const o = karts.get(p.owner);
+        if (p.age > 0.9 || p.ret) {
+          p.ret = true;
+          if (o) {
+            const want = Math.atan2(o.pos.x - p.pos.x, o.pos.z - p.pos.z);
+            let d = want - p.h; d = Math.atan2(Math.sin(d), Math.cos(d));
+            p.h += Math.max(-8 * dt, Math.min(8 * dt, d));
+            if (Math.hypot(o.pos.x - p.pos.x, o.pos.z - p.pos.z) < 3) { this.remove(p.id, false); continue; }
+          }
+        }
+        const sp = 72;
+        p.pos.x += Math.sin(p.h) * sp * dt; p.pos.z += Math.cos(p.h) * sp * dt;
+        p.mesh.children[0].rotation.y += dt * 25;
+        if (Math.random() < 0.5) this.fx.spark(p.pos.clone(), 0xdfe7ff);
+        if (p.age > 4) gone.push(p.id);
       }
-      if (p.type !== 'oil') {
+      if (p.type === 'dagger') {
+        if (!p.ret && this.track.blocked(p.pos, p)) p.ret = true;
+      } else if (p.type !== 'oil' && p.type !== 'meteor' && p.type !== 'fake') {
         if (this.track.blocked(p.pos, p)) gone.push(p.id);
       }
       p.mesh.position.copy(p.pos);
@@ -191,9 +267,10 @@ export class Projectiles {
   // هل أصاب مقذوف هذه السيارة؟
   collide(kart) {
     for (const p of this.list.values()) {
-      if (kart.out) return null;
-      if (p.owner === kart.id && p.age < (p.type === 'oil' ? 1.2 : 0.8)) continue;
-      const r = p.type === 'oil' ? 2.6 : p.type === 'jar' ? 2.6 : 2.2;
+      if (kart.out || kart.cloakT > 0) return null;
+      if (p.owner === kart.id && (p.type === 'dagger' || p.age < (p.type === 'oil' || p.type === 'fake' ? 1.2 : 0.8))) continue;
+      if (p.type === 'meteor' && p.pos.y > 3) continue;
+      const r = p.type === 'meteor' ? 4.5 : p.type === 'oil' || p.type === 'jar' || p.type === 'fake' ? 2.6 : 2.2;
       const dx = p.pos.x - kart.pos.x, dz = p.pos.z - kart.pos.z;
       if (dx * dx + dz * dz < r * r && kart.y < 3) return p;
     }

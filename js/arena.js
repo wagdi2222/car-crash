@@ -13,7 +13,7 @@ export class Arena {
     this.group = new THREE.Group();
     scene.add(this.group);
     const seed = course.id.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
-    buildEnvironment(this.group, scene, this.theme, seed);
+    this.env = buildEnvironment(this.group, scene, this.theme, seed);
     this.b = new Builder(this.group, rng(seed + 1));
     this.boxSpots = [];
     this.padSpots = [];

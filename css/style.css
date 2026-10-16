@@ -38,7 +38,7 @@ input { font: inherit; }
 #link { direction: ltr; font-size: 14px; }
 input[type=range] { flex: 1; accent-color: var(--gold); }
 
-.chars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.chars { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .char { font: inherit; color: #fff; cursor: pointer; padding: 8px 4px; border-radius: 14px; border: 2px solid transparent; background: linear-gradient(180deg, var(--c), color-mix(in srgb, var(--c) 55%, #000)); display: flex; flex-direction: column; align-items: center; gap: 2px; transition: transform .12s, border-color .12s; }
 .char .av { font-size: 30px; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .4)); }
 .char b { font-size: 16px; }
@@ -169,7 +169,6 @@ body.touchmode #minimap { bottom: auto; top: 120px; left: 12px; width: 120px; he
   .item .ico { font-size: 34px; }
   .standings { display: none; }
   #minimap { width: 120px; height: 120px; }
-  .chars { grid-template-columns: repeat(3, 1fr); }
   .char .av { font-size: 24px; }
   .char small { display: none; }
 }
@@ -219,3 +218,23 @@ body.touchmode .drift { bottom: 150px; }
 .pcard em { font-style: normal; font-size: 12px; opacity: .9; line-height: 1.5; }
 .phint { margin: 8px 0 0; font-size: 13px; color: var(--sand); line-height: 1.6; }
 .hud.battle .lap { letter-spacing: 2px; }
+
+/* ===== المتسابقون والجودة ===== */
+.char { padding: 6px 2px; }
+.char .av { font-size: 26px; }
+.char b { font-size: 13px; white-space: nowrap; }
+.char-info { margin-top: 8px; padding: 8px 12px; border-radius: 12px; background: rgba(0, 0, 0, .28); font-size: 13px; }
+.char-info b { color: var(--gold); font-size: 15px; }
+.char-info .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; }
+.stat small { display: block; opacity: .8; font-size: 11px; }
+.stat .bar { display: block; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, .15); overflow: hidden; }
+.stat .bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--teal), var(--gold)); }
+.ctl.q3 { grid-template-columns: repeat(3, 1fr); }
+.ctl.q3 .ctl-opt { font-size: 14px; padding: 8px 2px; }
+.itemwrap { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.prot { font-size: 20px; min-height: 1em; filter: drop-shadow(0 1px 3px #000); letter-spacing: 2px; }
+.item.def { border-color: #5ce1e6; }
+@media (max-width: 600px) {
+  .char .av { font-size: 20px; }
+  .char b { font-size: 11px; }
+}
