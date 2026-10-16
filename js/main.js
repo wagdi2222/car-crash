@@ -1154,9 +1154,12 @@ net.onMessage = (m) => {
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  // على الأجهزة البطيئة: نقسم الإطار الطويل إلى خطوتين بدل إبطاء اللعبة
+  const raw = Math.min(0.1, (now - last) / 1000);
   last = now;
-  updateRace(dt);
+  const steps = raw > 1 / 28 ? 2 : 1;
+  for (let i = 0; i < steps; i++) updateRace(raw / steps);
+  const dt = raw;
   if (!S.paused) { boxes.update(dt); fx.update(dt); }
   if (QUALITY[S.quality].bloom) composer.render(); else renderer.render(scene, camera);
 }

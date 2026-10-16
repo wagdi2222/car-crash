@@ -52,14 +52,23 @@ export class Arena {
 
   surface() { return { i: 0, offroad: false }; }
 
-  // ارتداد عن الجدار: n = الاتجاه من الساحة نحو العائق
+  // الاصطدام بالجدار: n = الاتجاه من الساحة نحو العائق
+  // السيارة تنزلق بمحاذاة الجدار بدل أن تنقلب فجأة. الاصطدام المباشر = ارتداد قصير للخلف دون دوران
   reflect(k, nx, nz) {
-    const fx = Math.sin(k.heading) * k.speed, fz = Math.cos(k.heading) * k.speed;
+    const sp = k.speed;
+    const fx = Math.sin(k.heading) * sp, fz = Math.cos(k.heading) * sp;
     const d = fx * nx + fz * nz;
     if (d <= 0) return;
-    const vx = fx - 2 * d * nx, vz = fz - 2 * d * nz;
-    const sp = Math.hypot(vx, vz) * 0.55;
-    if (k.speed >= 0) { k.heading = Math.atan2(vx, vz); k.speed = sp; } else { k.heading = Math.atan2(-vx, -vz); k.speed = -sp; }
+    const tx = fx - d * nx, tz = fz - d * nz;
+    const tlen = Math.hypot(tx, tz);
+    if (tlen < Math.abs(sp) * 0.35) {
+      k.speed = -Math.sign(sp) * Math.min(8, d * 0.3);
+    } else {
+      const want = sp >= 0 ? Math.atan2(tx, tz) : Math.atan2(-tx, -tz);
+      let dh = want - k.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+      k.heading += Math.max(-0.25, Math.min(0.25, dh));
+      k.speed = Math.sign(sp) * tlen * 0.92;
+    }
     k.drifting = false;
   }
 

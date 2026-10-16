@@ -270,6 +270,7 @@ export class Kart {
     this.drifting = false; this.driftDir = 0; this.driftT = 0; this.driftLvl = 0;
     this.boostT = 0; this.spinT = 0; this.spinAng = 0; this.shieldT = 0; this.genieT = 0; this.carpetT = 0; this.stormT = 0;
     this.cloakT = 0; this.amuletT = 0; this.orbit = 0; this.cloakVis = 1;
+    this.steerS = 0; this.driftArm = false;
     this.item = null; this.itemCount = 0; this.rolling = 0;
     this.idx = 0; this.prog = 0; this.lastLat = 0; this.offroad = false;
     this.finished = false; this.finishTime = 0;
@@ -336,7 +337,7 @@ export class Kart {
     const [stS, stA, stT] = this.st;
     const acc = ACC * (1 + (stA - 3) * 0.07), turn = 1 + (stT - 3) * 0.06;
     let max = MAX_SPEED * this.botSpeed * (1 + (stS - 3) * 0.022);
-    if (this.offroad && this.genieT <= 0 && this.carpetT <= 0) max *= 0.55;
+    if (this.offroad && this.genieT <= 0 && this.carpetT <= 0) max *= 0.62;
     if (this.boostT > 0) max *= 1.38;
     if (this.genieT > 0) max *= 1.22;
     if (this.stormT > 0) max *= 0.72;
@@ -361,25 +362,31 @@ export class Kart {
       }
       if (this.speed > max) this.speed = Math.max(max, this.speed - (this.speed - max) * 2.5 * dt);
 
-      // القفزة والانجراف
-      if (inp.driftPressed && grounded && this.speed > 5) { this.vy = 5.5; ev.hop = true; }
-      if (!this.drifting && inp.drift && this.y > 0 && this.y < 0.6 && this.vy < 0 && Math.abs(inp.steer) > 0.3 && this.speed > 18) {
-        this.drifting = true; this.driftDir = Math.sign(inp.steer); this.driftT = 0; this.driftLvl = 0;
+      // توجيه ناعم: يصل المقود لأقصاه خلال ~٠٫١٥ ثانية بدل القفز فوراً (أزرار ولوحة مفاتيح)
+      const st = inp.steer;
+      const rate = (Math.abs(st) < Math.abs(this.steerS) || Math.sign(st) !== Math.sign(this.steerS) ? 11 : 7) * dt;
+      this.steerS += Math.max(-rate, Math.min(rate, st - this.steerS));
+      const steer = this.steerS;
+      // القفزة والانجراف: اضغط الانجراف ثم وجّه في أي لحظة وأنت ممسك به
+      if (inp.driftPressed && grounded && this.speed > 5) { this.vy = 5.5; ev.hop = true; this.driftArm = true; }
+      if (!inp.drift) this.driftArm = false;
+      if (!this.drifting && this.driftArm && inp.drift && Math.abs(st) > 0.3 && this.speed > 16) {
+        this.drifting = true; this.driftDir = Math.sign(st); this.driftT = 0; this.driftLvl = 0; this.driftArm = false;
       }
-      const sf = Math.min(1, Math.abs(this.speed) / 14) * Math.sign(this.speed || 1);
+      const sf = Math.min(1, Math.abs(this.speed) / 9) * Math.sign(this.speed || 1);
       if (this.drifting) {
-        const into = inp.steer * this.driftDir; // -1..1
-        this.heading += this.driftDir * (1.25 + 0.75 * into) * turn * sf * dt;
-        this.driftT += dt * (1 + Math.max(0, into) * 0.5);
+        const into = st * this.driftDir; // -1..1
+        this.heading += this.driftDir * (1.35 + 0.8 * into) * turn * sf * dt;
+        this.driftT += dt * (1 + Math.max(0, into) * 0.5) * (this.offroad ? 0.5 : 1);
         const lvl = this.driftT > 2.6 ? 3 : this.driftT > 1.6 ? 2 : this.driftT > 0.7 ? 1 : 0;
         if (lvl > this.driftLvl) { this.driftLvl = lvl; ev.driftLvl = lvl; }
-        if (!inp.drift || this.speed < 12 || this.offroad && this.genieT <= 0) {
+        if (!inp.drift || this.speed < 12) {
           if (this.driftLvl > 0) { this.boost([0, 0.8, 1.3, 1.9][this.driftLvl]); ev.driftBoost = this.driftLvl; }
           this.drifting = false; this.driftT = 0; this.driftLvl = 0;
         }
       } else {
-        const hiSpeed = 1 - 0.3 * Math.min(1, Math.abs(this.speed) / MAX_SPEED);
-        this.heading += inp.steer * 2.1 * turn * hiSpeed * sf * dt;
+        const hiSpeed = 1 - 0.22 * Math.min(1, Math.abs(this.speed) / MAX_SPEED);
+        this.heading += steer * 2.35 * turn * hiSpeed * sf * dt;
       }
     }
 
@@ -438,7 +445,7 @@ export class Kart {
       if (this.carpetT > 0 && Math.random() < 0.5) fx.sparkle(this.pos.clone().setY(0.4));
       if (this.genieT > 0) fx.sparkle(this.pos.clone().setY(1 + Math.random() * 2));
     }
-    this.syncMesh(dt, inp.steer);
+    this.syncMesh(dt, this.steerS);
     return ev;
   }
 
