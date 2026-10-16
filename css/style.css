@@ -83,7 +83,7 @@ kbd { display: inline-block; min-width: 24px; text-align: center; padding: 0 6px
 .c1 { color: #4cc9f0; } .c2 { color: #ff9f1c; } .c3 { color: #c77dff; }
 
 /* ===== واجهة السباق ===== */
-.hud { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+.hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 .hud .top { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-start; }
 .pos { direction: ltr; text-align: left; font-family: Lalezar, Cairo, sans-serif; font-size: 64px; line-height: 1; color: var(--gold); text-shadow: 0 3px 0 #8a5404, 0 6px 12px rgba(0, 0, 0, .5); min-width: 90px; }
 .pos small { font-size: 26px; color: #fff; }
@@ -126,14 +126,33 @@ kbd { display: inline-block; min-width: 24px; text-align: center; padding: 0 6px
 .quit { top: auto; bottom: 64px; right: 14px; }
 
 /* ===== أزرار اللمس ===== */
-.touch { direction: ltr; position: fixed; inset: auto 0 0 0; height: 200px; z-index: 4; display: flex; justify-content: space-between; align-items: flex-end; padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); pointer-events: none; }
-.touch .tleft, .touch .tright { display: flex; gap: 12px; align-items: flex-end; pointer-events: auto; }
-.tleft { flex-direction: row; }
-.tbtn { width: 78px; height: 78px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .6); background: rgba(30, 12, 40, .45); color: #fff; font-size: 28px; font-family: inherit; font-weight: 900; user-select: none; touch-action: none; }
-.tbtn.on { background: rgba(242, 193, 78, .6); }
-.tbtn.tdrift { font-size: 15px; background: rgba(26, 163, 154, .5); }
-.tbtn.fire { width: 88px; height: 88px; background: rgba(155, 34, 38, .55); }
-.tbtn.small { width: 58px; height: 58px; font-size: 20px; }
+.touch { direction: ltr; position: fixed; inset: 0; z-index: 4; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+.touch .tleft, .touch .tright { position: absolute; bottom: max(14px, env(safe-area-inset-bottom, 0px)); display: flex; gap: 10px; align-items: flex-end; pointer-events: auto; }
+.touch .tleft { left: max(14px, env(safe-area-inset-left, 0px)); }
+.touch .tright { right: max(14px, env(safe-area-inset-right, 0px)); display: grid; grid-template-columns: auto auto; grid-template-areas: ". fire" "brake drift"; gap: 10px; align-items: end; justify-items: center; }
+.tbtn { width: 74px; height: 74px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .6); background: rgba(30, 12, 40, .45); color: #fff; font-size: 28px; font-family: inherit; font-weight: 900; user-select: none; -webkit-user-select: none; touch-action: none; padding: 0; }
+.tbtn.on { background: rgba(242, 193, 78, .6); transform: scale(.94); }
+.tbtn.tdrift { grid-area: drift; font-size: 15px; background: rgba(26, 163, 154, .5); }
+.tbtn.fire { grid-area: fire; width: 80px; height: 80px; background: rgba(155, 34, 38, .55); }
+.tbtn.small { grid-area: brake; width: 56px; height: 56px; font-size: 20px; }
+/* منطقة اللمس: يسار الشاشة للعصا، والشاشة كلها للإيماءات */
+.tzone { position: absolute; display: none; pointer-events: auto; touch-action: none; }
+.touch[data-mode="stick"] .tzone { display: block; left: 0; bottom: 0; width: 55%; height: 70%; }
+.touch[data-mode="gesture"] .tzone { display: block; inset: 0; }
+.touch[data-mode="stick"] .tleft, .touch[data-mode="gesture"] .tleft, .touch[data-mode="tilt"] .tleft { display: none; }
+.touch[data-mode="gesture"] .tright { display: none; }
+.touch[data-mode="stick"] #tc-brake { display: none; }
+.stick { position: absolute; width: 130px; height: 130px; margin: -65px 0 0 -65px; border-radius: 50%; border: 3px solid rgba(242, 193, 78, .7); background: radial-gradient(circle, rgba(30, 12, 40, .25), rgba(30, 12, 40, .55)); display: none; pointer-events: none; }
+.stick.show { display: block; }
+.stick .knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffe08a, #e09a1c); box-shadow: 0 3px 10px rgba(0, 0, 0, .5); }
+.thint { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(92vw, 420px); text-align: center; direction: rtl; background: rgba(30, 12, 40, .8); border: 2px solid var(--gold); border-radius: 14px; padding: 8px 12px; font-size: 14px; line-height: 1.6; opacity: 0; transition: opacity .4s; pointer-events: none; }
+.thint.show { opacity: 1; }
+.ctl-box .label { margin-top: 14px; }
+.ctl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ctl-opt { font: inherit; font-size: 13px; font-weight: 700; color: #fff; cursor: pointer; padding: 8px 2px; border-radius: 12px; border: 2px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .3); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ctl-opt span { font-size: 22px; }
+.ctl-opt.sel { border-color: var(--gold); background: rgba(242, 193, 78, .22); }
+.ctl-tip { margin: 6px 0 0; font-size: 13px; color: var(--sand); line-height: 1.6; min-height: 2.6em; }
 body.touchmode #minimap { bottom: auto; top: 120px; left: 12px; width: 120px; height: 120px; }
 
 /* ===== النتائج ===== */
@@ -154,8 +173,8 @@ body.touchmode #minimap { bottom: auto; top: 120px; left: 12px; width: 120px; he
   .char .av { font-size: 24px; }
   .char small { display: none; }
 }
-body.touchmode .mute { bottom: auto; top: 110px; right: 12px; }
-body.touchmode .quit { bottom: auto; top: 160px; right: 12px; }
+body.touchmode.racing .mute { bottom: auto; top: 110px; right: 12px; }
+body.touchmode.racing .quit { bottom: auto; top: 160px; right: 12px; }
 body.touchmode .standings { display: none; }
 body.touchmode .drift { bottom: 150px; }
 @media (max-height: 500px) {
@@ -165,4 +184,21 @@ body.touchmode .drift { bottom: 150px; }
   .lap { font-size: 16px; } .lap b { font-size: 18px; } .time { font-size: 13px; }
   .tbtn { width: 66px; height: 66px; } .tbtn.fire { width: 74px; height: 74px; } .tbtn.small { width: 50px; height: 50px; }
   body.touchmode #minimap { top: 90px; width: 100px; height: 100px; }
+}
+
+/* الجوال بالوضع العمودي */
+@media (orientation: portrait) and (max-width: 600px) {
+  .tbtn { width: 64px; height: 64px; font-size: 24px; }
+  .tbtn.fire { width: 70px; height: 70px; }
+  .tbtn.small { width: 50px; height: 50px; }
+  .tbtn.tdrift { font-size: 13px; }
+  body.touchmode #minimap { top: 84px; bottom: auto; left: 10px; width: 92px; height: 92px; }
+  body.touchmode.racing .mute { top: 100px; }
+  body.touchmode.racing .quit { top: 148px; }
+  .hud .top { left: 10px; right: 10px; }
+  .pos { font-size: 40px; min-width: 60px; }
+  .item { width: 60px; height: 60px; }
+  .item .ico { font-size: 30px; }
+  .lap { font-size: 15px; padding: 2px 10px; } .lap b { font-size: 17px; } .time { font-size: 13px; }
+  .thint { bottom: 170px; }
 }

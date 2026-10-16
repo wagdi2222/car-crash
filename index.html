@@ -28,6 +28,16 @@
       </label>
       <div class="label">اختر متسابقك</div>
       <div id="chars" class="chars"></div>
+      <div id="ctl-box" class="ctl-box">
+        <div class="label">طريقة التحكم باللمس</div>
+        <div id="ctl" class="ctl">
+          <button class="ctl-opt" data-m="buttons"><span>🔘</span>أزرار</button>
+          <button class="ctl-opt" data-m="stick"><span>🕹️</span>عصا توجيه</button>
+          <button class="ctl-opt" data-m="gesture"><span>👆</span>إيماءات</button>
+          <button class="ctl-opt" data-m="tilt"><span>📱</span>إمالة الجوال</button>
+        </div>
+        <p id="ctl-tip" class="ctl-tip"></p>
+      </div>
 
       <div id="join-box" class="join-box hidden">
         <div>تمت دعوتك إلى الغرفة <b id="join-code"></b></div>
@@ -126,16 +136,19 @@
   <button id="mute" class="iconbtn mute" title="الصوت">🔊</button>
 
   <!-- أزرار اللمس -->
-  <div id="touch" class="touch hidden">
+  <div id="touch" class="touch hidden" data-mode="buttons">
+    <div id="tc-zone" class="tzone"></div>
+    <div id="tc-stick" class="stick"><div class="knob"></div></div>
     <div class="tleft">
       <button id="tc-left" class="tbtn">◀</button>
       <button id="tc-right" class="tbtn">▶</button>
     </div>
     <div class="tright">
+      <button id="tc-fire" class="tbtn fire">🎯</button>
       <button id="tc-brake" class="tbtn small">▼</button>
       <button id="tc-drift" class="tbtn tdrift">انجراف</button>
-      <button id="tc-fire" class="tbtn fire">🎯</button>
     </div>
+    <div id="tc-hint" class="thint"></div>
   </div>
 
   <!-- النتائج -->

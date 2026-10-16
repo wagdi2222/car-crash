@@ -5,7 +5,7 @@ import { Kart, CHARS, F } from './kart.js';
 import { FX } from './fx.js';
 import { Boxes, Projectiles, ITEMS, ITEM_KEYS, rollItem } from './items.js';
 import { Bot } from './ai.js';
-import { Input } from './input.js';
+import { Input, CONTROL_TIPS } from './input.js';
 import { Audio, localStorageGet, localStorageSet } from './audio.js';
 import { Net } from './net.js';
 
@@ -102,7 +102,16 @@ function startRace(roster, demo = false) {
   if (!demo) {
     showScreen(null);
     $('hud').classList.remove('hidden');
+    document.body.classList.add('racing');
     $('touch').classList.toggle('hidden', !input.isTouch);
+    if (input.isTouch) {
+      input.resetTouch();
+      const h = $('tc-hint');
+      h.textContent = CONTROL_TIPS[input.mode];
+      h.classList.add('show');
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => h.classList.remove('show'), 5000);
+    }
     $('results').classList.add('hidden');
     audio.startMusic();
   }
@@ -225,7 +234,12 @@ function updateRace(dt) {
   if (!S.demo) updateHUD(rank, dt);
   if (me) audio.engine(me.speed, true);
   // أسماء السيارات القريبة جداً تُخفى حتى لا تغطي الشاشة
-  for (const k of S.karts.values()) if (k.label) k.label.visible = k.pos.distanceTo(camera.position) > 16;
+  // والسيارات الملاصقة للكاميرا تُخفى حتى لا تحجب الرؤية
+  for (const k of S.karts.values()) {
+    const d = Math.hypot(k.pos.x - camera.position.x, k.pos.z - camera.position.z);
+    if (k.label) k.label.visible = d > 16;
+    k.mesh.visible = k.shadow.visible = k === me || S.demo || d > 6;
+  }
   if (me && me.stormT > 0) fx.storm(camera.position);
 }
 
@@ -357,7 +371,8 @@ const camLook = new THREE.Vector3();
 function chaseCam(k, dt) {
   if (!k) return;
   const f = k.fwd;
-  const want = k.pos.clone().addScaledVector(f, -8.8).setY(3.9 + k.y * 0.5);
+  const portrait = camera.aspect < 0.9;
+  const want = k.pos.clone().addScaledVector(f, portrait ? -10.5 : -8.8).setY((portrait ? 5.2 : 3.9) + k.y * 0.5);
   const a = S.started ? 1 - Math.exp(-7 * dt) : 1;
   camera.position.lerp(want, a);
   camLook.copy(k.pos).addScaledVector(f, 5).setY(1.6 + k.y * 0.5);
@@ -367,7 +382,7 @@ function chaseCam(k, dt) {
     camera.position.y += (Math.random() - 0.5) * S.camShake;
   }
   camera.lookAt(camLook);
-  const fov = 72 + (k.boostT > 0 ? 10 : 0) + Math.min(6, Math.max(0, k.speed - 30) * 0.3);
+  const fov = (portrait ? 88 : 72) + (k.boostT > 0 ? 10 : 0) + Math.min(6, Math.max(0, k.speed - 30) * 0.3);
   camera.fov += (fov - camera.fov) * (1 - Math.exp(-5 * dt));
   camera.updateProjectionMatrix();
 }
@@ -387,7 +402,7 @@ function demoCam(dt, rank) {
 }
 
 // ---------- الواجهة ----------
-let msgTimer = 0;
+let msgTimer = 0, hintTimer = 0;
 function showMsg(text, cls = '') {
   const el = $('msg');
   el.textContent = text;
@@ -507,7 +522,7 @@ function renderResults(rank) {
 function showScreen(id) {
   for (const s of document.querySelectorAll('.screen')) s.classList.add('hidden');
   if (id) $(id).classList.remove('hidden');
-  if (id) { $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('results').classList.add('hidden'); }
+  if (id) { document.body.classList.remove('racing'); $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); $('results').classList.add('hidden'); }
 }
 
 // ---------- القائمة ----------
@@ -534,6 +549,13 @@ const roomParam = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g,
 
 function initMenu() {
   document.body.classList.toggle('touchmode', input.isTouch);
+  $('ctl-box').classList.toggle('hidden', !input.isTouch);
+  const showCtl = () => {
+    document.querySelectorAll('.ctl-opt').forEach((b) => b.classList.toggle('sel', b.dataset.m === input.mode));
+    $('ctl-tip').textContent = CONTROL_TIPS[input.mode];
+  };
+  document.querySelectorAll('.ctl-opt').forEach((b) => b.addEventListener('click', () => { input.setMode(b.dataset.m); showCtl(); audio.init(); audio.play('pickup'); }));
+  showCtl();
   $('name').value = S.name === 'متسابق' ? '' : S.name;
   buildCharPicker();
   if (roomParam) {
@@ -762,4 +784,4 @@ startDemo();
 showScreen('menu');
 requestAnimationFrame(frame);
 // أداة للاختبار الآلي: تشغيل المحاكاة بسرعة دون رسم
-window.__game = { S, net, track, projs, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { updateRace(dt); boxes.update(dt); fx.update(dt); } } };
+window.__game = { S, net, track, projs, input, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { updateRace(dt); boxes.update(dt); fx.update(dt); } } };
