@@ -1,6 +1,5 @@
 // الأسلحة والقدرات وصناديق الفوانيس
 import * as THREE from '../lib/three.module.min.js';
-import { LIMIT } from './track.js';
 
 export const ITEMS = {
   missile: { name: 'صاروخ الصقر', icon: '🦅', tip: 'صاروخ يلاحق المنافس الذي أمامك' },
@@ -58,6 +57,10 @@ export class Boxes {
       scene.add(m);
       return { m, p, active: true, t: 0 };
     });
+  }
+  dispose() {
+    for (const b of this.list) this.scene.remove(b.m);
+    this.list = [];
   }
   update(dt) {
     for (const b of this.list) {
@@ -147,11 +150,11 @@ export class Projectiles {
       p.age += dt;
       if (p.type === 'missile') {
         const t = p.target && karts.get(p.target);
-        if (t && p.age > 0.15) {
+        if (t && !t.out && p.age > 0.15) {
           const want = Math.atan2(t.pos.x - p.pos.x, t.pos.z - p.pos.z);
           let d = want - p.h; d = Math.atan2(Math.sin(d), Math.cos(d));
           p.h += Math.max(-3 * dt, Math.min(3 * dt, d));
-        } else {
+        } else if (this.track.kind === 'race') {
           // اتبع الطريق إن لم يكن هناك هدف
           const n = this.track.nearest(p.pos, p.idx);
           p.idx = n.i;
@@ -178,9 +181,7 @@ export class Projectiles {
         if (p.age > 45) gone.push(p.id);
       }
       if (p.type !== 'oil') {
-        const n = this.track.nearest(p.pos, p.idx);
-        p.idx = n.i;
-        if (Math.abs(n.lat) > LIMIT + 1) gone.push(p.id);
+        if (this.track.blocked(p.pos, p)) gone.push(p.id);
       }
       p.mesh.position.copy(p.pos);
     }
@@ -190,6 +191,7 @@ export class Projectiles {
   // هل أصاب مقذوف هذه السيارة؟
   collide(kart) {
     for (const p of this.list.values()) {
+      if (kart.out) return null;
       if (p.owner === kart.id && p.age < (p.type === 'oil' ? 1.2 : 0.8)) continue;
       const r = p.type === 'oil' ? 2.6 : p.type === 'jar' ? 2.6 : 2.2;
       const dx = p.pos.x - kart.pos.x, dz = p.pos.z - kart.pos.z;

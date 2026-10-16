@@ -45,13 +45,25 @@
       </div>
       <div class="btns">
         <button id="btn-host" class="btn big gold">العب مع أصدقائك 🌐</button>
-        <button id="btn-solo" class="btn big">سباق فردي ضد الآلي 🤖</button>
+        <button id="btn-solo" class="btn big">العب ضد الآلي 🤖</button>
       </div>
       <div class="btns small">
         <button id="btn-join-manual" class="btn ghost">لدي رمز غرفة</button>
         <button id="btn-help" class="btn ghost">طريقة اللعب</button>
       </div>
       <p id="status" class="status"></p>
+    </div>
+  </section>
+
+  <!-- اختيار الحلبة -->
+  <section id="select" class="screen hidden">
+    <div class="panel">
+      <h2 class="title sm">اختر الحلبة</h2>
+      <div id="solo-courses" class="courses"></div>
+      <div class="btns">
+        <button id="select-go" class="btn big gold">ابدأ السباق! 🏁</button>
+        <button id="select-back" class="btn ghost">رجوع</button>
+      </div>
     </div>
   </section>
 
@@ -72,6 +84,8 @@
       </div>
       <div class="label">المتسابقون</div>
       <ul id="players" class="players"></ul>
+      <div class="label">الحلبة</div>
+      <div id="lobby-courses" class="courses"></div>
       <div id="lobby-host-ctrl">
         <label class="field row">
           <span>متسابقون آليون: <b id="bots-n">٥</b></span>
@@ -108,6 +122,10 @@
           <li>🛡️ <b>درع الصحراء</b>: يصدّ ضربة واحدة</li>
           <li>🪔 <b>مصباح علاء الدين</b>: المارد يجعلك سريعاً لا تُقهر ويطيح بمن تلمسه (للمتأخرين!)</li>
         </ul>
+        <h3>وضع المعركة ⚔️</h3>
+        <p>ساحة مغلقة بلا خط نهاية. لكل متسابق ثلاث أرواح ❤️، وكل إصابة بسلاح أو بالمارد تُفقدك روحاً. اجمع الأسلحة من صناديق ؟ وطارد خصومك، وآخر من يبقى يفوز. إذا انتهى الوقت (٣ دقائق) يفوز صاحب الأرواح الأكثر ثم الإصابات الأكثر.</p>
+        <h3>الحلبات</h3>
+        <p>🏜️ كثبان الربع الخالي · 🏮 ليالي السوق القديم · 🌊 كورنيش الخليج · 🏔️ وادي رم · 🏰 ساحة القلعة · 🌴 واحة المعركة</p>
         <p>المنصّات الفيروزية على الطريق تمنحك دفعة سرعة، والرمال خارج الطريق تبطئك.</p>
       </div>
       <button id="help-back" class="btn big">رجوع</button>

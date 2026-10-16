@@ -202,3 +202,20 @@ body.touchmode .drift { bottom: 150px; }
   .lap { font-size: 15px; padding: 2px 10px; } .lap b { font-size: 17px; } .time { font-size: 13px; }
   .thint { bottom: 170px; }
 }
+
+/* ===== اختيار الحلبة ===== */
+.ptabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.ptab { font: inherit; font-weight: 900; font-size: 16px; color: #fff; cursor: pointer; padding: 10px; border-radius: 12px; border: 2px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .3); }
+.ptab.sel { border-color: var(--gold); background: rgba(242, 193, 78, .25); color: var(--gold); }
+.pcards { display: flex; flex-direction: column; gap: 8px; }
+.pcard { font: inherit; color: #fff; cursor: pointer; text-align: start; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 2px solid transparent; background: linear-gradient(110deg, var(--a), var(--b)); box-shadow: inset 0 0 0 999px rgba(0, 0, 0, .28); transition: transform .12s; }
+.pcard:hover:not(:disabled) { transform: translateY(-2px); }
+.pcard:disabled { cursor: default; }
+.pcard.sel { border-color: var(--gold); box-shadow: inset 0 0 0 999px rgba(0, 0, 0, .12), 0 0 0 3px rgba(242, 193, 78, .35); }
+.pcard .pic { font-size: 34px; flex: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5)); }
+.pcard .ptxt { display: flex; flex-direction: column; min-width: 0; }
+.pcard b { font-size: 17px; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.pcard small { color: #ffe8a3; font-size: 12px; }
+.pcard em { font-style: normal; font-size: 12px; opacity: .9; line-height: 1.5; }
+.phint { margin: 8px 0 0; font-size: 13px; color: var(--sand); line-height: 1.6; }
+.hud.battle .lap { letter-spacing: 2px; }

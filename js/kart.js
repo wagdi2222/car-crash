@@ -1,6 +1,5 @@
 // السيارات: الشكل والفيزياء
 import * as THREE from '../lib/three.module.min.js';
-import { ROAD_W, LIMIT } from './track.js';
 
 export const CHARS = [
   { name: 'صقر', color: 0xd62828, trim: 0xf2c14e, wear: 'ghutra', cloth: 0xffffff, desc: 'سريع كالصقر' },
@@ -14,7 +13,7 @@ export const CHARS = [
 export const MAX_SPEED = 46;
 const ACC = 26, BRAKE = 55, REV = -14;
 
-export const F = { DRIFT: 1, DLEFT: 2, SPIN: 4, SHIELD: 8, BOOST: 16, GENIE: 32, CARPET: 64, STORM: 128, FIN: 256, AIR: 512 };
+export const F = { DRIFT: 1, DLEFT: 2, SPIN: 4, SHIELD: 8, BOOST: 16, GENIE: 32, CARPET: 64, STORM: 128, FIN: 256, AIR: 512, OUT: 1024 };
 
 function buildModel(ch) {
   const g = new THREE.Group();
@@ -163,6 +162,7 @@ export class Kart {
     this.item = null; this.itemCount = 0; this.rolling = 0;
     this.idx = 0; this.prog = 0; this.lastLat = 0; this.offroad = false;
     this.finished = false; this.finishTime = 0;
+    this.lives = 3; this.hits = 0; this.out = false; this.outTime = 0;
     this.wrongT = 0;
     this.botSpeed = 1;
     // للسيارات البعيدة
@@ -173,16 +173,13 @@ export class Kart {
   get fwd() { return new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading)); }
   get right() { return new THREE.Vector3(-Math.cos(this.heading), 0, Math.sin(this.heading)); }
 
-  place(track, slot) {
-    // ترتيب الانطلاق: صفوف من سيارتين خلف خط البداية
-    const row = Math.floor(slot / 2), col = slot % 2;
-    const i = (track.N - 6 - row * 4) % track.N;
-    const p = track.points[i], r = track.rights[i], t = track.tangents[i];
-    const lat = col ? 4.5 : -4.5;
-    this.pos.set(p.x + r.x * lat, 0, p.z + r.z * lat);
-    this.heading = Math.atan2(t.x, t.z);
-    this.idx = i;
-    this.prog = i - track.N;
+  place(track, slot, total) {
+    // موضع الانطلاق تحدده الحلبة (صفوف خلف الخط، أو دائرة في ساحة المعركة)
+    const s = track.spawn(slot, total);
+    this.pos.set(s.x, 0, s.z);
+    this.heading = s.h;
+    this.idx = s.i;
+    this.prog = track.kind === 'race' ? s.i - track.N : 0;
     this.speed = 0;
     this.syncMesh(0);
   }
@@ -198,6 +195,7 @@ export class Kart {
     if (this.carpetT > 0) f |= F.CARPET;
     if (this.stormT > 0) f |= F.STORM;
     if (this.finished) f |= F.FIN;
+    if (this.out) f |= F.OUT;
     return f;
   }
 
@@ -218,8 +216,7 @@ export class Kart {
     // العدادات
     for (const k of ['boostT', 'shieldT', 'genieT', 'carpetT', 'stormT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
 
-    const near = track.nearest(this.pos, this.idx);
-    this.offroad = Math.abs(near.lat) > ROAD_W / 2 + 2.2;
+    this.offroad = track.surface(this.pos, this.idx).offroad;
 
     let max = MAX_SPEED * this.botSpeed;
     if (this.offroad && this.genieT <= 0 && this.carpetT <= 0) max *= 0.55;
@@ -282,30 +279,20 @@ export class Kart {
       if ((p.x - this.pos.x) ** 2 + (p.z - this.pos.z) ** 2 < 14 && this.boostT < 0.9) { this.boost(1.1); ev.pad = true; }
     }
 
-    // حدود الحلبة
-    const n2 = track.nearest(this.pos, near.i);
-    if (Math.abs(n2.lat) > LIMIT) {
-      const r = track.rights[n2.i];
-      const over = n2.lat - Math.sign(n2.lat) * LIMIT;
-      this.pos.x -= r.x * over; this.pos.z -= r.z * over;
-      // ارتداد بسيط: وجّه السيارة قليلاً نحو الطريق
-      const t = track.tangents[n2.i];
-      const ta = Math.atan2(t.x, t.z);
-      let d = ta - this.heading; d = Math.atan2(Math.sin(d), Math.cos(d));
-      if (Math.abs(d) < Math.PI / 2) this.heading += d * 0.12; else this.heading += (d - Math.sign(d) * Math.PI) * 0.12;
-      this.speed *= Math.pow(0.35, dt);
-      ev.wall = true;
-    }
+    // حدود الحلبة والعوائق
+    const b = track.bound(this);
+    if (b.wall) { this.speed *= Math.pow(0.35, dt); ev.wall = true; }
 
     // التقدّم في السباق
-    let delta = n2.i - this.idx;
-    if (delta < -track.N / 2) delta += track.N;
-    if (delta > track.N / 2) delta -= track.N;
-    this.prog += delta;
-    this.idx = n2.i;
-    this.lastLat = n2.lat;
-    const td = track.tangents[n2.i];
-    if (f.x * td.x + f.z * td.z < -0.3 && this.speed > 5) this.wrongT += dt; else this.wrongT = 0;
+    if (track.kind === 'race') {
+      let delta = b.i - this.idx;
+      if (delta < -track.N / 2) delta += track.N;
+      if (delta > track.N / 2) delta -= track.N;
+      this.prog += delta;
+      this.idx = b.i;
+      const td = track.tangents[b.i];
+      if (f.x * td.x + f.z * td.z < -0.3 && this.speed > 5) this.wrongT += dt; else this.wrongT = 0;
+    }
 
     // مؤثرات
     if (fx) {

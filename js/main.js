@@ -1,6 +1,9 @@
 // رالي الرمال — الملف الرئيسي: الحلقة، الواجهة، والشبكة
 import * as THREE from '../lib/three.module.min.js';
 import { Track } from './track.js';
+import { Arena } from './arena.js';
+import { COURSES, courseById } from './courses.js';
+import { disposeGroup } from './scenery.js';
 import { Kart, CHARS, F } from './kart.js';
 import { FX } from './fx.js';
 import { Boxes, Projectiles, ITEMS, ITEM_KEYS, rollItem } from './items.js';
@@ -10,6 +13,8 @@ import { Audio, localStorageGet, localStorageSet } from './audio.js';
 import { Net } from './net.js';
 
 const LAPS = 3;
+const BATTLE_TIME = 180; // مدة المعركة بالثواني
+const LIVES = 3;
 const MAX_PLAYERS = 8;
 const $ = (id) => document.getElementById(id);
 const AR = (n) => String(n).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[d]);
@@ -26,17 +31,27 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: $('game'), p
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xf3b780, 140, 950);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.5, 3000);
-scene.add(new THREE.HemisphereLight(0xffe6c2, 0x9a6a3a, 1.2));
-const sun = new THREE.DirectionalLight(0xffd4a0, 1.8);
-sun.position.set(-300, 200, -400);
-scene.add(sun);
 
-const track = new Track(scene);
+// الحلبة الحالية (سباق أو ساحة معركة) تُبنى عند اختيارها
+let track = null, boxes = null;
 const fx = new FX(scene);
-const boxes = new Boxes(scene, track.boxSpots);
-const projs = new Projectiles(scene, track, fx);
+const projs = new Projectiles(scene, null, fx);
+
+function loadCourse(id) {
+  const c = courseById(id);
+  if (track && track.course.id === c.id) return;
+  if (track) {
+    scene.remove(track.group);
+    disposeGroup(track.group);
+    boxes.dispose();
+  }
+  track = c.kind === 'arena' ? new Arena(scene, c) : new Track(scene, c);
+  boxes = new Boxes(scene, track.boxSpots);
+  projs.track = track;
+  buildMinimap();
+}
+const isBattle = () => track && track.kind === 'arena';
 const input = new Input();
 const audio = new Audio();
 const net = new Net();
@@ -60,6 +75,8 @@ const S = {
   char: +(localStorageGet('rimal-char') || 0) % CHARS.length,
   lobby: [],
   botCount: 5,
+  courseId: courseById(localStorageGet('rimal-course') || 'desert').id,
+  battleT: 0, ended: false,
   racing: false, // هل يجري سباق في الغرفة (للمضيف)
   karts: new Map(),
   ais: new Map(),
@@ -78,18 +95,22 @@ function clearRace() {
   for (const k of S.karts.values()) k.dispose(scene);
   S.karts.clear(); S.ais.clear(); S.me = null;
   for (const id of [...projs.list.keys()]) projs.remove(id, false);
-  boxes.list.forEach((b) => { b.active = true; b.m.visible = true; b.m.scale.setScalar(1); });
+  if (boxes) boxes.list.forEach((b) => { b.active = true; b.m.visible = true; b.m.scale.setScalar(1); });
 }
 
-function startRace(roster, demo = false) {
+function startRace(roster, demo = false, courseId = S.courseId) {
   clearRace();
+  loadCourse(courseId);
   S.demo = demo;
+  S.ended = false;
+  S.battleT = BATTLE_TIME;
   const mine = myId();
   roster.forEach((r, slot) => {
     const isMe = !demo && r.id === mine;
     const owned = isMe || (r.bot && (S.solo || net.isHost));
     const k = new Kart(scene, { id: r.id, name: r.name, char: r.char, owned, bot: !!r.bot });
-    k.place(track, slot);
+    k.place(track, slot, roster.length);
+    k.lives = LIVES;
     if (!owned) k.target = { x: k.pos.x, y: 0, z: k.pos.z, h: k.heading, sp: 0 };
     S.karts.set(r.id, k);
     if (r.bot && owned) S.ais.set(r.id, new Bot(k, 0.9 + Math.random() * 0.08));
@@ -113,6 +134,8 @@ function startRace(roster, demo = false) {
       hintTimer = setTimeout(() => h.classList.remove('show'), 5000);
     }
     $('results').classList.add('hidden');
+    $('hud').classList.toggle('battle', isBattle());
+    showMsg(track.course.name, 'lap');
     audio.startMusic();
   }
 }
@@ -121,7 +144,7 @@ function startDemo() {
   const roster = CHARS.map((c, i) => ({ id: 'demo' + i, name: c.name, char: i, bot: true }));
   const wasSolo = S.solo;
   S.solo = true;
-  startRace(roster, true);
+  startRace(roster, true, S.courseId);
   S.solo = wasSolo;
 }
 
@@ -137,6 +160,10 @@ function botRoster(humans, count) {
 }
 
 function ranking() {
+  if (isBattle()) {
+    // المعركة: الباقون أولاً، ثم الأرواح، ثم عدد الإصابات، ثم من خرج متأخراً
+    return [...S.karts.values()].sort((a, b) => (a.out - b.out) || (b.lives - a.lives) || (b.hits - a.hits) || (b.outTime - a.outTime));
+  }
   return [...S.karts.values()].sort((a, b) => {
     if (a.finished && b.finished) return a.finishTime - b.finishTime;
     if (a.finished) return -1;
@@ -171,25 +198,28 @@ function updateRace(dt) {
   const rank = ranking();
 
   for (const k of S.karts.values()) {
+    if (k.out) continue;
     if (k.owned) {
       let ki;
       if (k !== me || k.finished || S.autopilot) {
         let ai = S.ais.get(k.id);
         if (!ai) { ai = new Bot(k, 0.9); S.ais.set(k.id, ai); }
-        ki = S.started ? ai.think(dt, track, S.karts, leaderProg) : NOINPUT;
+        ki = S.started ? ai.think(dt, track, S.karts, leaderProg, boxes) : NOINPUT;
       } else ki = inp;
       const ev = k.update(dt, ki, track, fx);
       if (k === me) onMyEvents(ev);
       handleItems(k, ki, rank, dt);
-      checkLap(k);
+      if (!isBattle()) checkLap(k);
     } else k.updateRemote(dt, fx);
   }
+  if (isBattle() && S.started) checkBattleEnd(dt, rank);
 
   // تصادم السيارات
   const arr = [...S.karts.values()];
   for (let i = 0; i < arr.length; i++) {
     for (let j = i + 1; j < arr.length; j++) {
       const a = arr[i], b = arr[j];
+      if (a.out || b.out) continue;
       const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
       const d2 = dx * dx + dz * dz;
       if (d2 > 5.76 || d2 < 1e-4) continue;
@@ -198,8 +228,8 @@ function updateRace(dt) {
       a.pos.x -= nx * push * wa; a.pos.z -= nz * push * wa;
       b.pos.x += nx * push * wb; b.pos.z += nz * push * wb;
       // المارد يطيح بمن يلمسه
-      if (a.genieT > 0 && b.owned && b.genieT <= 0 && b.spinT <= 0 && b.hit('genie')) onHitLocal(b);
-      if (b.genieT > 0 && a.owned && a.genieT <= 0 && a.spinT <= 0 && a.hit('genie')) onHitLocal(a);
+      if (a.genieT > 0 && b.owned && b.genieT <= 0 && b.spinT <= 0 && b.hit('genie')) { onHitLocal(b, a.id); rsend({ t: 'ev', k: 'hit', v: b.id, by: a.id, real: true }); }
+      if (b.genieT > 0 && a.owned && a.genieT <= 0 && a.spinT <= 0 && a.hit('genie')) { onHitLocal(a, b.id); rsend({ t: 'ev', k: 'hit', v: a.id, by: b.id, real: true }); }
     }
   }
 
@@ -211,8 +241,8 @@ function updateRace(dt) {
     if (!p) continue;
     const real = k.hit(p.type);
     projs.remove(p.id, true);
-    rsend({ t: 'ev', k: 'hit', pid: p.id, v: k.id, real });
-    if (real) onHitLocal(k); else if (k === me) audio.play('shield');
+    rsend({ t: 'ev', k: 'hit', pid: p.id, v: k.id, by: p.owner, real });
+    if (real) onHitLocal(k, p.owner); else if (k === me) audio.play('shield');
     soundAt(p.pos, 'boom');
   }
 
@@ -224,13 +254,15 @@ function updateRace(dt) {
       const list = [];
       for (const k of S.karts.values()) {
         if (!k.owned) continue;
-        list.push([k.id, +k.pos.x.toFixed(2), +k.y.toFixed(2), +k.pos.z.toFixed(2), +k.heading.toFixed(3), +k.speed.toFixed(1), k.flagsNow, k.prog]);
+        list.push([k.id, +k.pos.x.toFixed(2), +k.y.toFixed(2), +k.pos.z.toFixed(2), +k.heading.toFixed(3), +k.speed.toFixed(1), k.flagsNow, k.prog, k.lives, k.hits]);
       }
       net.send({ t: 's', k: list });
     }
   }
 
-  if (S.demo) demoCam(dt, rank); else chaseCam(me, dt);
+  if (S.demo) demoCam(dt, rank);
+  else if (me && me.out) chaseCam(rank.find((k) => !k.out) || me, dt); // مشاهدة بعد الخروج
+  else chaseCam(me, dt);
   if (!S.demo) updateHUD(rank, dt);
   if (me) audio.engine(me.speed, true);
   // أسماء السيارات القريبة جداً تُخفى حتى لا تغطي الشاشة
@@ -238,7 +270,7 @@ function updateRace(dt) {
   for (const k of S.karts.values()) {
     const d = Math.hypot(k.pos.x - camera.position.x, k.pos.z - camera.position.z);
     if (k.label) k.label.visible = d > 16;
-    k.mesh.visible = k.shadow.visible = k === me || S.demo || d > 6;
+    k.mesh.visible = k.shadow.visible = !k.out && (k === me || S.demo || d > 6);
   }
   if (me && me.stormT > 0) fx.storm(camera.position);
 }
@@ -250,8 +282,41 @@ function onMyEvents(ev) {
   if (ev.wall && Math.random() < 0.1) audio.play('wall');
 }
 
-function onHitLocal(k) {
-  if (k === S.me) { audio.play('hit'); S.camShake = 0.5; showMsg('آخ!', 'hit'); }
+// إصابة حقيقية لسيارة نملكها. by = من أصابها
+function onHitLocal(k, by) {
+  if (k === S.me) { audio.play('hit'); S.camShake = 0.5; }
+  if (!isBattle()) { if (k === S.me) showMsg('آخ!', 'hit'); return; }
+  const att = S.karts.get(by);
+  if (att && att.owned && att !== k) att.hits++;
+  k.lives = Math.max(0, k.lives - 1);
+  if (k === S.me && k.lives > 0) showMsg(k.lives === 1 ? 'آخر روح!' : `بقي ${AR(k.lives)} ❤️`, 'hit');
+  if (k.lives <= 0) eliminate(k);
+}
+
+function eliminate(k) {
+  if (k.out) return;
+  k.out = true;
+  k.outTime = S.raceT;
+  k.item = null; k.rolling = 0;
+  fx.explode(k.pos.clone().setY(1), 0xff5a1a);
+  rsend({ t: 'ev', k: 'out', id: k.id, time: k.outTime });
+  if (k === S.me) { showMsg('خرجت من المعركة!', 'hit'); audio.play('boom'); }
+  else soundAt(k.pos, 'boom');
+}
+
+function checkBattleEnd(dt, rank) {
+  if (S.ended) return;
+  S.battleT -= dt;
+  const alive = rank.filter((k) => !k.out);
+  if ((rank.length > 1 && alive.length <= 1) || S.battleT <= 0) {
+    S.ended = true;
+    const win = ranking()[0];
+    if (S.me) {
+      showMsg(win === S.me ? 'فزت بالمعركة! 🏆' : `الفائز: ${win.name}`, 'go');
+      audio.play('win');
+      S.resultsT = 2.5;
+    }
+  }
 }
 
 function soundAt(pos, name) {
@@ -295,7 +360,17 @@ function useItem(k, back, rank) {
   switch (it) {
     case 'missile': {
       let target = null;
-      if (!back) {
+      if (!back && isBattle()) {
+        // المعركة: أقرب خصم أمامك
+        let best = Infinity;
+        for (const o of S.karts.values()) {
+          if (o === k || o.out) continue;
+          const dx = o.pos.x - k.pos.x, dz = o.pos.z - k.pos.z;
+          let a = Math.atan2(dx, dz) - k.heading; a = Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+          const score = Math.hypot(dx, dz) * (a < 1.2 ? 1 : 3);
+          if (score < best) { best = score; target = o.id; }
+        }
+      } else if (!back) {
         const r = rank.indexOf(k);
         if (r > 0) target = rank[r - 1].id;
       }
@@ -338,7 +413,8 @@ function applyStorm(from, prog) {
   const src = S.karts.get(from);
   if (S.me && !S.demo) audio.play('storm');
   for (const k of S.karts.values()) {
-    if (!k.owned || k.id === from || k.prog <= prog || k.genieT > 0 || k.finished) continue;
+    if (!k.owned || k.id === from || k.genieT > 0 || k.finished || k.out) continue;
+    if (!isBattle() && k.prog <= prog) continue; // في السباق: فقط من هم أمامك
     if (k.shieldT > 0) { k.shieldT = 0; continue; }
     k.stormT = 3.5;
     if (k === S.me) showMsg(`عاصفة من ${src ? src.name : '؟'}!`, 'hit');
@@ -417,25 +493,36 @@ let mmT = null;
 function buildMinimap() {
   const W = mm.width, H = mm.height;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const p of track.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+  if (track.kind === 'arena') { minX = minZ = -track.R; maxX = maxZ = track.R; }
+  else for (const p of track.points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
   const s = Math.min((W - 24) / (maxX - minX), (H - 24) / (maxZ - minZ));
   // نقلب X حتى تطابق الخريطة اتجاه الكاميرا المعتاد من الأعلى
   mmT = (x, z) => [W - (12 + (x - minX) * s + (W - 24 - (maxX - minX) * s) / 2), 12 + (z - minZ) * s + (H - 24 - (maxZ - minZ) * s) / 2];
   mmBase.width = W; mmBase.height = H;
   const g = mmBase.getContext('2d');
   g.lineJoin = 'round';
+  if (track.kind === 'arena') {
+    const [cx, cy] = mmT(0, 0), rr = track.R * s;
+    g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fillStyle = 'rgba(242,216,167,.55)'; g.fill();
+    g.lineWidth = 3; g.strokeStyle = 'rgba(40,20,5,.7)'; g.stroke();
+    for (const o of track.obstacles) {
+      const [ox, oy] = mmT(o.x, o.z);
+      g.beginPath(); g.arc(ox, oy, Math.max(2, o.r * s), 0, Math.PI * 2); g.fillStyle = 'rgba(60,35,15,.8)'; g.fill();
+    }
+    return;
+  }
   const path = () => { g.beginPath(); track.points.forEach((p, i) => { const [x, y] = mmT(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); };
   g.strokeStyle = 'rgba(40,20,5,.65)'; g.lineWidth = 11; path(); g.stroke();
   g.strokeStyle = '#f2d8a7'; g.lineWidth = 6; path(); g.stroke();
   const [sx, sy] = mmT(track.points[0].x, track.points[0].z);
   g.fillStyle = '#fff'; g.fillRect(sx - 4, sy - 4, 8, 8);
 }
-buildMinimap();
 
 function drawMinimap() {
   mmc.clearRect(0, 0, mm.width, mm.height);
   mmc.drawImage(mmBase, 0, 0);
   for (const k of S.karts.values()) {
+    if (k.out) continue;
     const [x, y] = mmT(k.pos.x, k.pos.z);
     mmc.beginPath();
     mmc.arc(x, y, k === S.me ? 6 : 4.5, 0, Math.PI * 2);
@@ -456,11 +543,17 @@ let rouletteT = 0, standT = 0, itemKey = null;
 function updateHUD(rank, dt) {
   const me = S.me;
   if (!me) return;
-  const lap = Math.min(LAPS, Math.max(1, Math.floor(me.prog / track.N) + 1));
-  $('lap').innerHTML = `اللفة <b>${AR(lap)}</b>/${AR(LAPS)}`;
+  const battle = isBattle();
+  if (battle) {
+    $('lap').innerHTML = me.out ? 'تشاهد المعركة 👀' : '❤️'.repeat(me.lives) + '🖤'.repeat(LIVES - me.lives);
+    $('time').textContent = fmtTime(Math.max(0, S.battleT)).slice(0, -3);
+  } else {
+    const lap = Math.min(LAPS, Math.max(1, Math.floor(me.prog / track.N) + 1));
+    $('lap').innerHTML = `اللفة <b>${AR(lap)}</b>/${AR(LAPS)}`;
+    $('time').textContent = fmtTime(S.raceT);
+  }
   const pos = rank.indexOf(me);
   $('pos').innerHTML = `<b>${AR(pos + 1)}</b><small>/${AR(rank.length)}</small>`;
-  $('time').textContent = fmtTime(S.raceT);
   // السلاح
   const box = $('item');
   let key = '';
@@ -488,7 +581,7 @@ function updateHUD(rank, dt) {
   standT -= dt;
   if (standT <= 0) {
     standT = 0.3;
-    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${esc(k.name)}${k.finished ? ' 🏁' : ''}</li>`).join('');
+    $('standings').innerHTML = rank.map((k, i) => `<li class="${k === me ? 'me' : ''}"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${AR(i + 1)}. ${esc(k.name)}${battle ? ' ' + (k.out ? '💀' : '❤️'.repeat(k.lives)) : k.finished ? ' 🏁' : ''}</li>`).join('');
   }
   drawMinimap();
   // النتائج
@@ -504,7 +597,7 @@ function showResults() {
   $('results').classList.remove('hidden');
   const host = S.solo || net.isHost;
   $('res-again').classList.toggle('hidden', !host);
-  $('res-again').textContent = S.solo ? 'سباق جديد' : 'العودة إلى الغرفة';
+  $('res-again').textContent = S.solo ? (isBattle() ? 'معركة جديدة' : 'سباق جديد') : 'العودة إلى الغرفة';
   $('res-wait').classList.toggle('hidden', host);
 }
 
@@ -516,7 +609,7 @@ function renderResults(rank) {
   $('res-list').innerHTML = rank.map((k, i) => `<tr class="${k === S.me ? 'me' : ''}">
     <td>${i < 3 ? ['🥇', '🥈', '🥉'][i] : AR(i + 1)}</td>
     <td><span class="nm"><i style="background:#${new THREE.Color(k.color).getHexString()}"></i>${esc(k.name)}${k.bot ? ' <small>(آلي)</small>' : ''}</span></td>
-    <td>${k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
+    <td>${isBattle() ? `<span dir="rtl">${k.out ? '💀 خرج' : '❤️'.repeat(k.lives)} · 🎯 ${AR(k.hits)}</span>` : k.finished ? fmtTime(k.finishTime) : '<small>في السباق…</small>'}</td></tr>`).join('');
 }
 
 function showScreen(id) {
@@ -565,10 +658,11 @@ function initMenu() {
   }
   $('btn-solo').onclick = () => {
     readName(); audio.init();
-    S.solo = true; S.mode = 'race';
-    const humans = [{ id: 'me', name: S.name, char: S.char }];
-    startRace([...humans, ...botRoster(humans, 5)]);
+    showScreen('select');
+    renderCoursePicker($('solo-courses'), false);
   };
+  $('select-back').onclick = () => showScreen('menu');
+  $('select-go').onclick = startSolo;
   $('btn-host').onclick = hostRoom;
   $('btn-join').onclick = () => joinRoom(roomParam);
   $('btn-join-manual').onclick = () => {
@@ -588,7 +682,7 @@ function initMenu() {
   };
   $('res-menu').onclick = leaveToMenu;
   $('res-again').onclick = () => {
-    if (S.solo) $('btn-solo').onclick();
+    if (S.solo) startSolo();
     else { S.racing = false; enterLobby(); broadcastLobby(); }
   };
   $('lobby-leave').onclick = leaveToMenu;
@@ -606,6 +700,50 @@ function initMenu() {
     else window.open('https://wa.me/?text=' + encodeURIComponent('تعال سابقني في رالي الرمال! 🏎️🐪 ' + link));
   };
   $('whatsapp').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent('تعال سابقني في رالي الرمال! 🏎️🐪 ' + $('link').value));
+}
+
+function startSolo() {
+  audio.init();
+  S.solo = true; S.mode = 'race';
+  const humans = [{ id: 'me', name: S.name, char: S.char }];
+  startRace([...humans, ...botRoster(humans, 5)]);
+}
+
+// بطاقات اختيار الحلبة (سباق / معركة)
+let pickTab = null;
+function renderCoursePicker(el, readonly) {
+  const cur = courseById(S.courseId);
+  if (!pickTab || readonly) pickTab = cur.kind;
+  const tabs = `<div class="ptabs">
+    <button class="ptab ${pickTab === 'race' ? 'sel' : ''}" data-tab="race">🏁 سباق</button>
+    <button class="ptab ${pickTab === 'arena' ? 'sel' : ''}" data-tab="arena">⚔️ معركة</button></div>`;
+  const list = COURSES.filter((c) => c.kind === pickTab);
+  el.innerHTML = (readonly ? '' : tabs) + `<div class="pcards">` + (readonly ? [cur] : list).map((c) => `
+    <button class="pcard ${c.id === S.courseId ? 'sel' : ''}" data-id="${c.id}" style="--a:${c.card[0]};--b:${c.card[1]}" ${readonly ? 'disabled' : ''}>
+      <span class="pic">${c.icon}</span>
+      <span class="ptxt"><b>${c.name}</b><small>${c.place}</small><em>${c.desc}</em></span>
+    </button>`).join('') + `</div>` + (pickTab === 'arena' && !readonly ? `<p class="phint">في المعركة لكل متسابق ${AR(LIVES)} أرواح ❤️. كل إصابة تُفقده روحاً، وآخر من يبقى يفوز.</p>` : '');
+  el.querySelectorAll('.ptab').forEach((b) => b.addEventListener('click', () => {
+    pickTab = b.dataset.tab;
+    const first = COURSES.find((c) => c.kind === pickTab);
+    if (courseById(S.courseId).kind !== pickTab) selectCourse(first.id);
+    renderCoursePicker(el, readonly);
+  }));
+  el.querySelectorAll('.pcard').forEach((b) => b.addEventListener('click', () => {
+    selectCourse(b.dataset.id);
+    renderCoursePicker(el, readonly);
+    audio.init(); audio.play('pickup');
+  }));
+  const go = $('select-go');
+  if (go) go.textContent = courseById(S.courseId).kind === 'arena' ? 'ابدأ المعركة! ⚔️' : 'ابدأ السباق! 🏁';
+}
+
+function selectCourse(id) {
+  if (id === S.courseId) return;
+  S.courseId = id;
+  localStorageSet('rimal-course', id);
+  startDemo(); // معاينة حية للحلبة في الخلفية
+  if (net.isHost) broadcastLobby();
 }
 
 function leaveToMenu() {
@@ -675,6 +813,8 @@ function renderLobby(info = {}) {
   if (S.botCount > max) S.botCount = max;
   $('bots').value = S.botCount;
   $('bots-n').textContent = AR(S.botCount);
+  renderCoursePicker($('lobby-courses'), !host);
+  $('lobby-start').textContent = courseById(S.courseId).kind === 'arena' ? 'ابدأ المعركة! ⚔️' : 'ابدأ السباق! 🏁';
   $('players').innerHTML = S.lobby.map((p, i) => `<li><i style="background:#${new THREE.Color(CHARS[p.char % CHARS.length].color).getHexString()}"></i>
     <b>${esc(p.name)}</b> <small>${CHARS[p.char % CHARS.length].name}</small>${i === 0 ? ' <span class="tag">المضيف</span>' : ''}${p.id === net.id ? ' <span class="tag you">أنت</span>' : ''}</li>`).join('')
     + (S.botCount ? `<li class="botsline">🤖 + ${AR(S.botCount)} متسابقين آليين</li>` : '');
@@ -682,7 +822,7 @@ function renderLobby(info = {}) {
 
 function broadcastLobby() {
   if (!net.isHost) return;
-  net.send({ t: 'lobby', players: S.lobby, bots: S.botCount, racing: S.racing }, false);
+  net.send({ t: 'lobby', players: S.lobby, bots: S.botCount, racing: S.racing, course: S.courseId }, false);
   if (S.mode === 'lobby') renderLobby();
 }
 
@@ -692,7 +832,7 @@ function hostStart() {
   const humans = S.lobby.slice(0, MAX_PLAYERS);
   const roster = [...humans, ...botRoster(humans, Math.min(S.botCount, MAX_PLAYERS - humans.length))];
   S.racing = true;
-  net.send({ t: 'start', roster }, false);
+  net.send({ t: 'start', roster, course: S.courseId }, false);
   startRace(roster);
 }
 
@@ -728,6 +868,7 @@ net.onMessage = (m) => {
       if (net.isHost) return;
       S.lobby = Array.isArray(m.players) ? m.players : [];
       S.botCount = m.bots | 0;
+      if (m.course && m.course !== S.courseId) { S.courseId = courseById(m.course).id; if (S.mode === 'lobby') startDemo(); }
       if (S.mode === 'race' && !m.racing) { S.mode = 'lobby'; enterLobby(); }
       if (S.mode === 'lobby') renderLobby(m);
       break;
@@ -735,6 +876,7 @@ net.onMessage = (m) => {
     case 'start':
       if (net.isHost || !Array.isArray(m.roster)) return;
       if (!m.roster.find((r) => r.id === net.id)) return; // لست في هذا السباق
+      S.courseId = courseById(m.course).id;
       startRace(m.roster);
       break;
     case 'left': removeKart(m.id); break;
@@ -746,6 +888,8 @@ net.onMessage = (m) => {
         k.target = { x: e[1], y: e[2], z: e[3], h: e[4], sp: e[5] };
         k.flags = e[6];
         k.prog = e[7];
+        if (e[8] !== undefined) { k.lives = e[8]; k.hits = e[9]; }
+        if (e[6] & F.OUT && !k.out) { k.out = true; k.outTime = k.outTime || S.raceT; }
         if (e[6] & F.FIN && !k.finished) { k.finished = true; k.finishTime = k.finishTime || S.raceT; }
       }
       break;
@@ -754,8 +898,15 @@ net.onMessage = (m) => {
       if (S.demo) return;
       if (m.k === 'proj' && m.d) projs.spawn(m.d);
       else if (m.k === 'hit') {
-        const p = projs.list.get(m.pid);
+        const p = m.pid && projs.list.get(m.pid);
         if (p) { soundAt(p.pos, 'boom'); projs.remove(m.pid, true); }
+        // من أصاب خصماً يُحسب له (إن كان من سياراتنا)
+        const att = S.karts.get(m.by);
+        if (m.real && isBattle() && att && att.owned && m.v !== m.by) att.hits++;
+      }
+      else if (m.k === 'out') {
+        const k = S.karts.get(m.id);
+        if (k && !k.out) { k.out = true; k.outTime = m.time; fx.explode(k.pos.clone().setY(1), 0xff5a1a); soundAt(k.pos, 'boom'); }
       } else if (m.k === 'box') boxes.take(m.i);
       else if (m.k === 'storm') applyStorm(m.from, m.prog);
       else if (m.k === 'fin') {
@@ -784,4 +935,4 @@ startDemo();
 showScreen('menu');
 requestAnimationFrame(frame);
 // أداة للاختبار الآلي: تشغيل المحاكاة بسرعة دون رسم
-window.__game = { S, net, track, projs, input, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { updateRace(dt); boxes.update(dt); fx.update(dt); } } };
+window.__game = { S, net, get track() { return track; }, projs, input, loadCourse, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { updateRace(dt); boxes.update(dt); fx.update(dt); } } };
