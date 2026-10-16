@@ -4,7 +4,7 @@ import { localStorageGet, localStorageSet } from './audio.js';
 export const CONTROL_TIPS = {
   buttons: 'أزرار ◀ ▶ للتوجيه، وأزرار للانجراف والسلاح والفرامل.',
   stick: 'المس يسار الشاشة في أي مكان واسحب للتوجيه، واسحب للأسفل للفرامل.',
-  gesture: 'اسحب إصبعك يميناً ويساراً للتوجيه. ضع إصبعاً ثانياً للانجراف، واسحب بسرعة للأعلى لإطلاق السلاح (أو للأسفل للخلف).',
+  gesture: 'اسحب إصبعك يميناً ويساراً للتوجيه. ضع إصبعاً ثانياً للانجراف، واسحب بسرعة للأعلى لإطلاق السلاح (أو للأسفل للخلف). في المعارك مع البنزين اليدوي: تتحرك السيارة ما دام إصبعك على الشاشة.',
   tilt: 'أمِل الجوال يميناً ويساراً للتوجيه كأنه مقود.',
 };
 const MODES = Object.keys(CONTROL_TIPS);
@@ -25,6 +25,8 @@ export class Input {
     this.analog = 0;
     this.analogBrake = false;
     this.gDrift = false;
+    this.analogGas = false;
+    this.autoGas = true; // في المعارك قد يصبح البنزين يدوياً
     this.ptr = new Map(); // معرف اللمسة -> بيانات
     this.tilt = 0;
     this.tiltSeen = false;
@@ -57,19 +59,24 @@ export class Input {
 
   applyMode() {
     const el = document.getElementById('touch');
-    if (el) el.dataset.mode = this.mode;
+    if (el) { el.dataset.mode = this.mode; el.classList.toggle('manual', !this.autoGas); }
+  }
+
+  setAutoGas(on) {
+    this.autoGas = on;
+    this.applyMode();
   }
 
   resetTouch() {
     for (const k in this.touch) this.touch[k] = false;
-    this.analog = 0; this.analogBrake = false; this.gDrift = false;
+    this.analog = 0; this.analogBrake = false; this.gDrift = false; this.analogGas = false;
     this.ptr.clear();
     this.showStick(false);
     document.querySelectorAll('.tbtn.on').forEach((b) => b.classList.remove('on'));
   }
 
   bindButtons() {
-    const map = { 'tc-left': 'left', 'tc-right': 'right', 'tc-brake': 'brake', 'tc-drift': 'drift', 'tc-fire': 'fire' };
+    const map = { 'tc-left': 'left', 'tc-right': 'right', 'tc-brake': 'brake', 'tc-drift': 'drift', 'tc-fire': 'fire', 'tc-gas': 'gas' };
     for (const id in map) {
       const el = document.getElementById(id);
       if (!el) continue;
@@ -122,6 +129,7 @@ export class Input {
         if (this.knobEl) this.knobEl.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
         this.analog = clamp(-dx / 50, -1, 1);
         this.analogBrake = dy > 42;
+        this.analogGas = dy < -18; // دفع العصا للأمام = بنزين (في الوضع اليدوي)
       } else if (p.role === 'steer') {
         this.analog = clamp(-dx / 70, -1, 1);
         // سحبة سريعة عمودية = إطلاق السلاح
@@ -139,7 +147,7 @@ export class Input {
       const p = this.ptr.get(e.pointerId);
       if (!p) return;
       this.ptr.delete(e.pointerId);
-      if (p.role === 'stick') { this.analog = 0; this.analogBrake = false; this.showStick(false); }
+      if (p.role === 'stick') { this.analog = 0; this.analogBrake = false; this.analogGas = false; this.showStick(false); }
       if (p.role === 'steer') {
         this.analog = 0;
         // إذا رُفع إصبع التوجيه وبقي إصبع الانجراف، يصبح هو إصبع التوجيه
@@ -184,7 +192,12 @@ export class Input {
       }
     }
     const down = k.has('ArrowDown') || k.has('KeyS') || t.brake || this.analogBrake;
-    const up = k.has('ArrowUp') || k.has('KeyW') || t.gas || (this.isTouch && !down);
+    let autoUp = this.isTouch && !down;
+    if (!this.autoGas) {
+      // البنزين اليدوي: زر ▲، أو العصا للأمام، أو إصبع على الشاشة في وضع الإيماءات
+      autoUp = this.analogGas || (this.mode === 'gesture' && [...this.ptr.values()].some((q) => q.role === 'steer'));
+    }
+    const up = k.has('ArrowUp') || k.has('KeyW') || t.gas || autoUp;
     const drift = k.has('Space') || k.has('ShiftLeft') || k.has('ShiftRight') || t.drift || this.gDrift;
     const driftPressed = drift && !this.prevDrift;
     this.prevDrift = drift;

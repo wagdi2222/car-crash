@@ -238,3 +238,17 @@ body.touchmode .drift { bottom: 150px; }
   .char .av { font-size: 20px; }
   .char b { font-size: 11px; }
 }
+
+/* ===== البنزين اليدوي والإيقاف ===== */
+.tbtn.gas { display: none; grid-area: gas; width: 84px; height: 84px; font-size: 30px; background: rgba(42, 157, 143, .55); }
+.touch.manual[data-mode="buttons"] .tbtn.gas, .touch.manual[data-mode="stick"] .tbtn.gas, .touch.manual[data-mode="tilt"] .tbtn.gas { display: block; }
+.touch.manual .tright { grid-template-columns: auto auto auto; grid-template-areas: "brake drift fire" ". . gas"; }
+.touch.manual[data-mode="stick"] .tright { grid-template-areas: ". drift fire" ". . gas"; }
+.ctl.q2 { grid-template-columns: repeat(2, 1fr); }
+.ctl.q2 .ctl-opt { font-size: 14px; padding: 8px 2px; }
+#pause-settings .label:first-child { margin-top: 0; }
+.btn.wide { width: 100%; margin-top: 12px; }
+#pause-menu { z-index: 7; }
+@media (orientation: portrait) and (max-width: 600px) {
+  .tbtn.gas { width: 72px; height: 72px; }
+}

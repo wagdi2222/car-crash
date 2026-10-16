@@ -3,7 +3,8 @@ import * as THREE from '../lib/three.module.min.js';
 import { Track } from './track.js';
 import { Arena } from './arena.js';
 import { COURSES, courseById } from './courses.js';
-import { disposeGroup } from './scenery.js';
+import { disposeGroup, mergeStatic } from './scenery.js';
+const countMeshes = (g) => { let n = 0; g.traverse((o) => { if (o.isMesh) n++; }); return n; };
 import { Kart, CHARS, F, KART_GFX } from './kart.js';
 import { EffectComposer } from '../lib/post/EffectComposer.js';
 import { RenderPass } from '../lib/post/RenderPass.js';
@@ -82,6 +83,9 @@ function loadCourse(id) {
     const farDune = o.parent === track.group && o.geometry.type === 'SphereGeometry';
     o.castShadow = tall && !farDune;
   });
+  const before = countMeshes(track.group);
+  mergeStatic(track.group);
+  console.info(`[${c.id}] meshes: ${before} → ${countMeshes(track.group)}`);
   // انعكاسات السماء على طلاء السيارات
   const envScene = new THREE.Scene();
   envScene.add(new THREE.Mesh(track.env.sky.geometry, track.env.sky.material));
@@ -146,6 +150,8 @@ const S = {
   courseId: courseById(localStorageGet('rimal-course') || 'desert').id,
   quality: QUALITY[localStorageGet('rimal-quality')] ? localStorageGet('rimal-quality') : (input.isTouch ? 'medium' : 'high'),
   battleT: 0, ended: false,
+  battleGas: localStorageGet('rimal-bgas') === 'auto' ? 'auto' : 'manual',
+  paused: false, resumeT: 0, pauseBy: '',
   racing: false, // هل يجري سباق في الغرفة (للمضيف)
   karts: new Map(),
   ais: new Map(),
@@ -204,6 +210,9 @@ function startRace(roster, demo = false, courseId = S.courseId) {
     }
     $('results').classList.add('hidden');
     $('hud').classList.toggle('battle', isBattle());
+    input.setAutoGas(!(isBattle() && S.battleGas === 'manual'));
+    S.paused = false; S.resumeT = 0;
+    $('pause-menu').classList.add('hidden');
     showMsg(track.course.name, 'lap');
     audio.startMusic();
   }
@@ -245,6 +254,18 @@ const NOINPUT = { up: false, down: false, steer: 0, drift: false, driftPressed: 
 
 function updateRace(dt) {
   const me = S.me;
+  if (S.paused) {
+    // اللعبة متوقفة: لا فيزياء ولا وقت. عند الاستئناف عدّ تنازلي قصير
+    input.read();
+    if (S.resumeT > 0) {
+      const prev = Math.ceil(S.resumeT);
+      S.resumeT -= dt;
+      const c = Math.ceil(S.resumeT);
+      if (c !== prev && c > 0) { showMsg(AR(c), 'count'); audio.play('beep'); }
+      if (S.resumeT <= 0) { S.paused = false; showMsg('انطلق!', 'go'); audio.play('go'); }
+    }
+    return;
+  }
   let inp = me ? input.read() : NOINPUT;
 
   if (!S.started) {
@@ -808,6 +829,7 @@ const roomParam = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g,
 function initMenu() {
   document.body.classList.toggle('touchmode', input.isTouch);
   $('ctl-box').classList.toggle('hidden', !input.isTouch);
+  $('bgas-box').classList.toggle('hidden', !input.isTouch);
   const showCtl = () => {
     document.querySelectorAll('.ctl-opt').forEach((b) => b.classList.toggle('sel', b.dataset.m === input.mode));
     $('ctl-tip').textContent = CONTROL_TIPS[input.mode];
@@ -837,15 +859,18 @@ function initMenu() {
   };
   $('btn-help').onclick = () => showScreen('help');
   $('help-back').onclick = () => showScreen('menu');
-  $('mute').onclick = () => { audio.init(); $('mute').textContent = audio.toggleMute() ? '🔇' : '🔊'; };
-  $('mute').textContent = audio.muted ? '🔇' : '🔊';
-  // ضغطتان للخروج بدل نافذة التأكيد (لا تعمل في كل المتصفحات المضمّنة)
-  let quitAt = 0;
-  $('quit').onclick = () => {
-    if (performance.now() - quitAt < 2500) { quitAt = 0; leaveToMenu(); return; }
-    quitAt = performance.now();
-    showMsg('اضغط ✕ مرة أخرى للخروج', 'hit');
-  };
+  $('mute').onclick = () => { audio.init(); audio.toggleMute(); updateSoundLabels(); };
+  updateSoundLabels();
+  $('pause').onclick = () => setPause(true);
+  $('pause-resume').onclick = () => setPause(false);
+  $('pause-quit').onclick = () => leaveToMenu();
+  $('pause-sound').onclick = () => { audio.init(); audio.toggleMute(); updateSoundLabels(); };
+  addEventListener('keydown', (e) => {
+    if ((e.code === 'Escape' || e.code === 'KeyP') && S.mode === 'race' && !S.demo && !S.resultsShown) {
+      if (!S.paused) setPause(true); else setPause(false);
+    }
+  });
+  buildGasPicker();
   $('res-menu').onclick = leaveToMenu;
   $('res-again').onclick = () => {
     if (S.solo) startSolo();
@@ -912,7 +937,49 @@ function selectCourse(id) {
   if (net.isHost) broadcastLobby();
 }
 
+function updateSoundLabels() {
+  $('mute').textContent = audio.muted ? '🔇' : '🔊';
+  $('pause-sound').textContent = audio.muted ? 'الصوت: مطفأ 🔇' : 'الصوت: يعمل 🔊';
+}
+
+function buildGasPicker() {
+  document.querySelectorAll('#bgas .ctl-opt').forEach((b) => {
+    b.classList.toggle('sel', b.dataset.g === S.battleGas);
+    b.onclick = () => {
+      S.battleGas = b.dataset.g;
+      localStorageSet('rimal-bgas', S.battleGas);
+      buildGasPicker();
+      if (S.mode === 'race' && !S.demo) input.setAutoGas(!(isBattle() && S.battleGas === 'manual'));
+    };
+  });
+}
+
+// الإيقاف المؤقت: يشمل جميع اللاعبين في اللعب الجماعي
+function setPause(on, by = S.name, remote = false) {
+  if (S.mode !== 'race' || S.demo) return;
+  if (on) {
+    if (S.paused && S.resumeT <= 0) return;
+    S.paused = true; S.resumeT = 0; S.pauseBy = by;
+    $('pause-who').textContent = S.solo ? 'اضبط الإعدادات ثم تابع اللعب.' : remote ? `أوقف ${by} اللعبة لجميع اللاعبين.` : 'أوقفتَ اللعبة لجميع اللاعبين.';
+    $('pause-settings').appendChild($('settings-block'));
+    $('pause-menu').classList.remove('hidden');
+    audio.engine(0, false);
+    input.resetTouch();
+  } else {
+    if (!S.paused || S.resumeT > 0) return;
+    S.resumeT = 3;
+    $('settings-host').appendChild($('settings-block'));
+    $('pause-menu').classList.add('hidden');
+    if (!S.solo && remote) showMsg(`${by} استأنف اللعب`, 'item');
+  }
+  if (!remote) rsend({ t: 'ev', k: 'pause', on, by: S.name });
+}
+
 function leaveToMenu() {
+  S.paused = false; S.resumeT = 0;
+  $('pause-menu').classList.add('hidden');
+  $('settings-host').appendChild($('settings-block'));
+  input.setAutoGas(true);
   if (net.online) net.close();
   S.solo = true; S.racing = false; S.mode = 'menu'; S.lobby = [];
   audio.engine(0, false);
@@ -1076,6 +1143,7 @@ net.onMessage = (m) => {
       } else if (m.k === 'box') boxes.take(m.i);
       else if (m.k === 'storm') applyStorm(m.from, m.prog);
       else if (m.k === 'swarm') applySwarm(m.from, +m.x, +m.z);
+      else if (m.k === 'pause') setPause(!!m.on, cleanName(m.by), true);
       else if (m.k === 'fin') {
         const k = S.karts.get(m.id);
         if (k) { k.finished = true; k.finishTime = m.time; }
@@ -1092,8 +1160,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   updateRace(dt);
-  boxes.update(dt);
-  fx.update(dt);
+  if (!S.paused) { boxes.update(dt); fx.update(dt); }
   if (QUALITY[S.quality].bloom) composer.render(); else renderer.render(scene, camera);
 }
 

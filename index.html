@@ -29,6 +29,7 @@
       <div class="label">اختر متسابقك</div>
       <div id="chars" class="chars"></div>
       <div id="char-info" class="char-info"></div>
+      <div id="settings-host"><div id="settings-block">
       <div id="ctl-box" class="ctl-box">
         <div class="label">طريقة التحكم باللمس</div>
         <div id="ctl" class="ctl">
@@ -46,6 +47,15 @@
       </div>
       <div class="label">جودة الرسوم</div>
       <div id="quality" class="ctl q3"></div>
+        <div id="bgas-box">
+          <div class="label">البنزين في المعارك (اللمس)</div>
+          <div id="bgas" class="ctl q2">
+            <button class="ctl-opt" data-g="manual">✋ يدوي</button>
+            <button class="ctl-opt" data-g="auto">⚡ تلقائي</button>
+          </div>
+          <p class="ctl-tip">يدوي: لا تتحرك السيارة في ساحة المعركة إلا عند الضغط على ▲ (أو دفع العصا للأمام، أو إبقاء الإصبع على الشاشة في وضع الإيماءات). في السباقات يبقى البنزين تلقائياً.</p>
+        </div>
+      </div></div>
       <div class="btns">
         <button id="btn-host" class="btn big gold">العب مع أصدقائك 🌐</button>
         <button id="btn-solo" class="btn big">العب ضد الآلي 🤖</button>
@@ -112,6 +122,8 @@
           <li><kbd>←</kbd> <kbd>→</kbd> أو <kbd>A</kbd> <kbd>D</kbd> توجيه</li>
           <li><kbd>مسافة</kbd> أو <kbd>Shift</kbd> قفزة وانجراف (اضغط مع التوجيه في المنعطف)</li>
           <li><kbd>F</kbd> / <kbd>Enter</kbd> استخدام السلاح — مع <kbd>↓</kbd> للرمي للخلف</li>
+          <li><kbd>Esc</kbd> / <kbd>P</kbd> أو زر ⏸ إيقاف مؤقت وتغيير الإعدادات (في اللعب الجماعي يتوقف الجميع)</li>
+          <li>على الجوال في المعارك: البنزين يدوي بزر ▲ (يمكن جعله تلقائياً من الإعدادات)</li>
         </ul>
         <h3>الانجراف والتوربو</h3>
         <p>استمر في الانجراف حتى يتغير لون الشرر: <span class="c1">أزرق</span> ← <span class="c2">برتقالي</span> ← <span class="c3">بنفسجي</span>، ثم أفلت الزر لتنطلق كالبرق! اضغط البنزين قبل كلمة "انطلق" بلحظة لتحصل على انطلاقة توربو.</p>
@@ -164,7 +176,7 @@
     <div id="wrong" class="wrong">⚠ الاتجاه خاطئ!</div>
     <div id="storm" class="stormfx"></div>
     <div id="boostfx" class="boostfx"></div>
-    <button id="quit" class="iconbtn quit" title="خروج">✕</button>
+    <button id="pause" class="iconbtn quit" title="إيقاف مؤقت">⏸</button>
   </div>
   <button id="mute" class="iconbtn mute" title="الصوت">🔊</button>
 
@@ -178,10 +190,28 @@
     </div>
     <div class="tright">
       <button id="tc-fire" class="tbtn fire">🎯</button>
+      <button id="tc-gas" class="tbtn gas">▲</button>
       <button id="tc-brake" class="tbtn small">▼</button>
       <button id="tc-drift" class="tbtn tdrift">انجراف</button>
     </div>
     <div id="tc-hint" class="thint"></div>
+  </div>
+
+  <!-- الإيقاف المؤقت -->
+  <div id="pause-menu" class="results hidden">
+    <div class="panel">
+      <h2 class="title sm">متوقفة مؤقتاً ⏸</h2>
+      <p id="pause-who" class="status"></p>
+      <div class="btns">
+        <button id="pause-resume" class="btn big gold">متابعة اللعب ▶</button>
+      </div>
+      <div class="label">الإعدادات</div>
+      <div id="pause-settings"></div>
+      <button id="pause-sound" class="btn ghost wide">الصوت: يعمل 🔊</button>
+      <div class="btns">
+        <button id="pause-quit" class="btn ghost">الخروج إلى القائمة</button>
+      </div>
+    </div>
   </div>
 
   <!-- النتائج -->

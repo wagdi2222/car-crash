@@ -338,3 +338,56 @@ export class Builder {
     }
   }
 }
+
+// دمج الأجسام الثابتة ذات المادة نفسها في جسم واحد لتقليل عدد عمليات الرسم
+// (مهم جداً للساحات الكبيرة وللجوال)
+export function mergeStatic(group) {
+  group.updateMatrixWorld(true);
+  const buckets = new Map();
+  const victims = [];
+  group.traverse((o) => {
+    if (!o.isMesh || o.userData.keep) return;
+    const m = o.material;
+    if (Array.isArray(m) || m.isShaderMaterial || m.transparent) return;
+    const key = m.uuid + (o.castShadow ? 'c' : '') + (o.receiveShadow ? 'r' : '');
+    if (!buckets.has(key)) buckets.set(key, { mat: m, cast: o.castShadow, recv: o.receiveShadow, list: [] });
+    buckets.get(key).list.push(o);
+    victims.push(o);
+  });
+  const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
+  for (const b of buckets.values()) {
+    if (b.list.length < 2) { victims.splice(victims.indexOf(b.list[0]), 1); continue; }
+    let count = 0;
+    const parts = b.list.map((o) => {
+      let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      if (!g.attributes.normal) g.computeVertexNormals();
+      count += g.attributes.position.count;
+      return g;
+    });
+    const useColor = !!b.mat.vertexColors;
+    const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2);
+    const col = useColor ? new Float32Array(count * 3) : null;
+    let off = 0;
+    for (const g of parts) {
+      const n = g.attributes.position.count;
+      pos.set(g.attributes.position.array, off * 3);
+      nor.set(g.attributes.normal.array, off * 3);
+      if (g.attributes.uv) uv.set(g.attributes.uv.array, off * 2);
+      if (col) { if (g.attributes.color) col.set(g.attributes.color.array, off * 3); else col.fill(1, off * 3, (off + n) * 3); }
+      off += n;
+      g.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    if (col) geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, b.mat);
+    mesh.castShadow = b.cast; mesh.receiveShadow = b.recv;
+    mesh.userData.keep = true;
+    group.add(mesh);
+  }
+  for (const o of victims) { o.parent.remove(o); o.geometry.dispose(); }
+}

@@ -111,7 +111,7 @@ export const COURSES = [
   },
   // ---------- ساحات المعركة (واسعة، بممرات وأسوار ومنصات قفز) ----------
   {
-    id: 'fort', kind: 'arena', layout: 'fort', shape: 'circle', R: 150, name: 'ساحة القلعة', place: 'قلعة حجرية قديمة', icon: '🏰',
+    id: 'fort', kind: 'arena', layout: 'fort', shape: 'circle', R: 240, name: 'ساحة القلعة', place: 'قلعة حجرية قديمة', icon: '🏰',
     desc: 'ساحة واسعة بسور داخلي له بوابات، ونافورة في الوسط، وأبراج ومنحدرات للقفز.', card: ['#c9962c', '#4a2c1a'],
     theme: {
       sky: { top: [0.16, 0.12, 0.38], mid: [0.93, 0.45, 0.32], hor: [1.0, 0.78, 0.48], sun: [-0.6, 0.18, -0.78], sunCol: [1.0, 0.85, 0.5] },
@@ -122,7 +122,7 @@ export const COURSES = [
     },
   },
   {
-    id: 'oasis', kind: 'arena', layout: 'oasis', shape: 'circle', R: 165, name: 'واحة المعركة', place: 'بِرك وبساتين نخيل', icon: '🌴',
+    id: 'oasis', kind: 'arena', layout: 'oasis', shape: 'circle', R: 260, name: 'واحة المعركة', place: 'بِرك وبساتين نخيل', icon: '🌴',
     desc: 'رمال مفتوحة حول بِرك الماء، وبساتين نخيل تختبئ خلفها، وكثبان للقفز.', card: ['#2bb3c0', '#3f8f3a'],
     theme: {
       sky: { top: [0.2, 0.45, 0.85], mid: [0.55, 0.78, 0.95], hor: [0.98, 0.92, 0.8], sun: [0.3, 0.6, -0.7], sunCol: [1.0, 0.98, 0.9] },
@@ -133,7 +133,7 @@ export const COURSES = [
     },
   },
   {
-    id: 'bazaar', kind: 'arena', layout: 'bazaar', shape: 'rect', hw: 150, hd: 150, name: 'متاهة البازار', place: 'أزقّة سوق ليلي', icon: '🏮',
+    id: 'bazaar', kind: 'arena', layout: 'bazaar', shape: 'rect', hw: 250, hd: 250, name: 'متاهة البازار', place: 'أزقّة سوق ليلي', icon: '🏮',
     desc: 'شوارع وأزقّة بين بيوت السوق، وساحة في الوسط. مطاردات ليلية وكمائن عند الزوايا.', card: ['#1d2b5c', '#c9962c'],
     theme: {
       sky: { top: [0.02, 0.03, 0.12], mid: [0.08, 0.1, 0.28], hor: [0.3, 0.22, 0.35], sun: [0.4, 0.35, -0.8], sunCol: [1.0, 0.97, 0.85], moon: true, stars: true },
@@ -144,7 +144,7 @@ export const COURSES = [
     },
   },
   {
-    id: 'harbor', kind: 'arena', layout: 'harbor', shape: 'rect', hw: 170, hd: 130, name: 'ميناء الداو', place: 'رصيف سفن وصناديق شحن', icon: '⚓',
+    id: 'harbor', kind: 'arena', layout: 'harbor', shape: 'rect', hw: 270, hd: 200, name: 'ميناء الداو', place: 'رصيف سفن وصناديق شحن', icon: '⚓',
     desc: 'رصيف ميناء عريض بين المخازن وأكوام الصناديق، والبحر من جهة.', card: ['#1d70b8', '#7a4a22'],
     theme: {
       sky: { top: [0.2, 0.45, 0.85], mid: [0.55, 0.78, 0.95], hor: [0.98, 0.92, 0.8], sun: [0.3, 0.6, -0.7], sunCol: [1.0, 0.98, 0.9] },
@@ -155,7 +155,7 @@ export const COURSES = [
     },
   },
   {
-    id: 'rocks', kind: 'arena', layout: 'rocks', shape: 'circle', R: 170, name: 'وادي الأعمدة', place: 'صخور حمراء شاهقة', icon: '🗿',
+    id: 'rocks', kind: 'arena', layout: 'rocks', shape: 'circle', R: 270, name: 'وادي الأعمدة', place: 'صخور حمراء شاهقة', icon: '🗿',
     desc: 'وادٍ أحمر واسع تملؤه أعمدة صخرية وهضاب، يحيط به جرف عالٍ.', card: ['#d9572b', '#5a2a1a'],
     theme: {
       sky: { top: [0.25, 0.45, 0.78], mid: [0.75, 0.75, 0.82], hor: [1.0, 0.72, 0.5], sun: [0.7, 0.35, 0.5], sunCol: [1.0, 0.9, 0.7] },
