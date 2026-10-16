@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>رالي الرمال</title>
+  <meta name="description" content="سباق سيارات عربي مع صواريخ وأسلحة، العب مع أصدقائك عبر رابط">
+  <meta name="theme-color" content="#2a1440">
+  <meta property="og:title" content="رالي الرمال 🏎️🐪">
+  <meta property="og:description" content="سابقني في الصحراء! صواريخ الصقر، العاصفة الرملية، ومصباح علاء الدين">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&family=Lalezar&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐪</text></svg>">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- القائمة الرئيسية -->
+  <section id="menu" class="screen">
+    <div class="panel">
+      <h1 class="title">رالي الرمال</h1>
+      <p class="subtitle">سباق · صواريخ · صحراء</p>
+      <label class="field">
+        <span>اسمك</span>
+        <input id="name" maxlength="14" placeholder="اكتب اسمك يا بطل" autocomplete="off">
+      </label>
+      <div class="label">اختر متسابقك</div>
+      <div id="chars" class="chars"></div>
+
+      <div id="join-box" class="join-box hidden">
+        <div>تمت دعوتك إلى الغرفة <b id="join-code"></b></div>
+        <button id="btn-join" class="btn big gold">انضم إلى السباق 🏁</button>
+      </div>
+      <div class="btns">
+        <button id="btn-host" class="btn big gold">العب مع أصدقائك 🌐</button>
+        <button id="btn-solo" class="btn big">سباق فردي ضد الآلي 🤖</button>
+      </div>
+      <div class="btns small">
+        <button id="btn-join-manual" class="btn ghost">لدي رمز غرفة</button>
+        <button id="btn-help" class="btn ghost">طريقة اللعب</button>
+      </div>
+      <p id="status" class="status"></p>
+    </div>
+  </section>
+
+  <!-- غرفة الانتظار -->
+  <section id="lobby" class="screen hidden">
+    <div class="panel">
+      <h2 class="title sm">غرفة السباق <span id="room-code" class="code"></span></h2>
+      <div class="share">
+        <p>أرسل هذا الرابط لأصدقائك ليدخلوا معك:</p>
+        <div class="linkrow">
+          <input id="link" readonly>
+          <button id="copy" class="btn">نسخ الرابط</button>
+        </div>
+        <div class="btns small">
+          <button id="whatsapp" class="btn wa">إرسال عبر واتساب</button>
+          <button id="share" class="btn ghost">مشاركة…</button>
+        </div>
+      </div>
+      <div class="label">المتسابقون</div>
+      <ul id="players" class="players"></ul>
+      <div id="lobby-host-ctrl">
+        <label class="field row">
+          <span>متسابقون آليون: <b id="bots-n">٥</b></span>
+          <input id="bots" type="range" min="0" max="7" value="5">
+        </label>
+        <button id="lobby-start" class="btn big gold">ابدأ السباق! 🏁</button>
+      </div>
+      <p id="lobby-wait" class="status wait hidden"></p>
+      <button id="lobby-leave" class="btn ghost">مغادرة الغرفة</button>
+    </div>
+  </section>
+
+  <!-- طريقة اللعب -->
+  <section id="help" class="screen hidden">
+    <div class="panel">
+      <h2 class="title sm">طريقة اللعب</h2>
+      <div class="help">
+        <h3>التحكم</h3>
+        <ul>
+          <li><kbd>↑</kbd>/<kbd>W</kbd> تسارع — <kbd>↓</kbd>/<kbd>S</kbd> فرامل وخلفي</li>
+          <li><kbd>←</kbd> <kbd>→</kbd> أو <kbd>A</kbd> <kbd>D</kbd> توجيه</li>
+          <li><kbd>مسافة</kbd> أو <kbd>Shift</kbd> قفزة وانجراف (اضغط مع التوجيه في المنعطف)</li>
+          <li><kbd>F</kbd> / <kbd>Enter</kbd> استخدام السلاح — مع <kbd>↓</kbd> للرمي للخلف</li>
+        </ul>
+        <h3>الانجراف والتوربو</h3>
+        <p>استمر في الانجراف حتى يتغير لون الشرر: <span class="c1">أزرق</span> ← <span class="c2">برتقالي</span> ← <span class="c3">بنفسجي</span>، ثم أفلت الزر لتنطلق كالبرق! اضغط البنزين قبل كلمة "انطلق" بلحظة لتحصل على انطلاقة توربو.</p>
+        <h3>صناديق ؟ والأسلحة</h3>
+        <ul class="items">
+          <li>🦅 <b>صاروخ الصقر</b>: يلاحق المتسابق الذي أمامك</li>
+          <li>🏺 <b>الجرّة النارية</b>: تتدحرج للأمام وتنفجر</li>
+          <li>🛢️ <b>فخ الزيت</b>: بقعة خلفك تدير من يمر عليها</li>
+          <li>🧞 <b>بساط الريح</b>: طيران سريع حتى فوق الرمال</li>
+          <li>🌪️ <b>العاصفة الرملية</b>: تبطئ وتعمي كل من هو أمامك</li>
+          <li>🛡️ <b>درع الصحراء</b>: يصدّ ضربة واحدة</li>
+          <li>🪔 <b>مصباح علاء الدين</b>: المارد يجعلك سريعاً لا تُقهر ويطيح بمن تلمسه (للمتأخرين!)</li>
+        </ul>
+        <p>المنصّات الفيروزية على الطريق تمنحك دفعة سرعة، والرمال خارج الطريق تبطئك.</p>
+      </div>
+      <button id="help-back" class="btn big">رجوع</button>
+    </div>
+  </section>
+
+  <!-- واجهة السباق -->
+  <div id="hud" class="hud hidden">
+    <div class="top">
+      <div id="pos" class="pos"></div>
+      <div class="mid">
+        <div id="lap" class="lap"></div>
+        <div id="time" class="time"></div>
+      </div>
+      <div id="item" class="item"></div>
+    </div>
+    <ol id="standings" class="standings"></ol>
+    <canvas id="minimap" width="170" height="170"></canvas>
+    <div id="drift" class="drift"><div class="bar"></div></div>
+    <div id="msg" class="msg"></div>
+    <div id="wrong" class="wrong">⚠ الاتجاه خاطئ!</div>
+    <div id="storm" class="stormfx"></div>
+    <div id="boostfx" class="boostfx"></div>
+    <button id="quit" class="iconbtn quit" title="خروج">✕</button>
+  </div>
+  <button id="mute" class="iconbtn mute" title="الصوت">🔊</button>
+
+  <!-- أزرار اللمس -->
+  <div id="touch" class="touch hidden">
+    <div class="tleft">
+      <button id="tc-left" class="tbtn">◀</button>
+      <button id="tc-right" class="tbtn">▶</button>
+    </div>
+    <div class="tright">
+      <button id="tc-brake" class="tbtn small">▼</button>
+      <button id="tc-drift" class="tbtn tdrift">انجراف</button>
+      <button id="tc-fire" class="tbtn fire">🎯</button>
+    </div>
+  </div>
+
+  <!-- النتائج -->
+  <div id="results" class="results hidden">
+    <div class="panel">
+      <h2 class="title sm">النتائج 🏁</h2>
+      <table><tbody id="res-list"></tbody></table>
+      <div class="btns">
+        <button id="res-again" class="btn big gold">سباق جديد</button>
+        <p id="res-wait" class="status wait hidden">بانتظار المضيف لبدء سباق جديد…</p>
+        <button id="res-menu" class="btn ghost">القائمة الرئيسية</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/peerjs.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
